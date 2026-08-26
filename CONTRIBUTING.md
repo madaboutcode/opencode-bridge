@@ -66,7 +66,9 @@ git push origin v0.1.0
 
 The tag-only GitHub workflow validates the tag, runs the Linux/macOS build and
 test matrix, and creates a GitHub Release with both release binaries. Branch
-and pull-request pushes do not run this workflow.
+and pull-request pushes do not run this workflow. A failed or interrupted tagged
+release can be rerun manually from that tag; the workflow rejects non-SemVer
+refs before building or publishing.
 
 ## Reporting bugs
 
