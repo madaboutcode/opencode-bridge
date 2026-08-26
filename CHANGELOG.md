@@ -24,6 +24,7 @@ Initial release.
 ### Changed
 - Prepared the project for open-source release with an MIT license, README, CI, and contributing documentation.
 - `opencode_catalog` returns a scored, agents-first plain-text table; omit `kind` or use `kind="all"` for both catalogs.
+- Tagged releases run the Linux/macOS validation matrix and publish platform-specific binaries to GitHub Releases.
 
 [Unreleased]: https://github.com/madaboutcode/opencode-bridge/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/madaboutcode/opencode-bridge/releases/tag/v0.1.0
