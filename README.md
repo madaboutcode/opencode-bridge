@@ -1,5 +1,7 @@
 # opencode-bridge
 
+> **⚠️ Beta — work in progress.** This is an early, experimental bridge between Claude Code and opencode2. APIs will break. Tested by the author, not hardened for production use. Expect rough edges.
+
 A small **MCP stdio server** that gives Claude Code `Agent`/`SendMessage`-style tools to drive [**opencode2**](https://github.com/sst/opencode) through its HTTP API + SSE event stream — no `opencode2 run` subprocesses.
 
 The headline feature: launch an async task and **get a completion callback pushed back into the launching Claude Code session** the instant the turn goes idle, instead of polling. This callback channel uses Claude Code's cross-agent messaging protocol (AF_UNIX inbox socket) — MCP clients other than Claude Code can use the tools but won't receive async notifications.
