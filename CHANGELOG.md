@@ -7,10 +7,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-- Project prepared for open-source release (MIT license, README, CI, contributing docs).
-- `opencode_catalog` now returns a scored, agents-first plain-text table; omit `kind` or use `kind="all"` for both catalogs.
-
 ## [0.1.0] — 2026-08-26
 
 Initial release.
@@ -24,6 +20,10 @@ Initial release.
 - RAII notification-claim guard (`NotifyClaim`) for `wait=true` to keep CC cancellation safe.
 - Correlation on a shared opencode server via the `cc-bridge:<origin>:<slug>` title tag and prompt `metadata`, scoped to the launching CC session's origin (CC socket PID).
 - Free `wait=true` smoke path against `opencode-go/ox-alpha-free`.
+
+### Changed
+- Prepared the project for open-source release with an MIT license, README, CI, and contributing documentation.
+- `opencode_catalog` returns a scored, agents-first plain-text table; omit `kind` or use `kind="all"` for both catalogs.
 
 [Unreleased]: https://github.com/madaboutcode/opencode-bridge/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/madaboutcode/opencode-bridge/releases/tag/v0.1.0
