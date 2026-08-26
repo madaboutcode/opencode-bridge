@@ -591,7 +591,7 @@ async fn list_sessions(state: &AppState, include_all: bool) -> Result<Value> {
         }
     }
 
-    sessions.sort_by(|a, b| b.0.cmp(&a.0)); // newest first
+    sessions.sort_by_key(|a| std::cmp::Reverse(a.0)); // newest first
     let sessions: Vec<Value> = sessions.into_iter().map(|(_, v)| v).collect();
 
     let mut out = json!({"sessions": sessions});

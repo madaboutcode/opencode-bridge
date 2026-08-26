@@ -216,7 +216,7 @@ impl Registry {
     pub fn list(&self) -> Vec<(String, Tracked)> {
         let guard = self.sessions.lock().expect("registry mutex poisoned");
         let mut v: Vec<_> = guard.iter().map(|(k, t)| (k.clone(), t.clone())).collect();
-        v.sort_by(|a, b| b.1.created.cmp(&a.1.created));
+        v.sort_by_key(|a| std::cmp::Reverse(a.1.created));
         v
     }
 }
