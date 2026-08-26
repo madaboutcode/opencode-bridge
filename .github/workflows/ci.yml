@@ -1,18 +1,31 @@
-name: ci
+name: release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v*"
 
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -D warnings
 
 jobs:
+  validate-tag:
+    name: validate tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check SemVer tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Unsupported release tag: $TAG (expected vMAJOR.MINOR.PATCH)"
+            exit 1
+          fi
+
   check:
-    name: check (${{ matrix.os }})
+    needs: validate-tag
+    name: build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -40,8 +53,47 @@ jobs:
         run: cargo test --all-targets --locked
 
       - name: cargo package --list (no internal docs)
-        run: cargo package --locked --allow-dirty --no-verify --list | tee /tmp/pkg-list.txt && ! grep -Eq "docs/internal|tasks/" /tmp/pkg-list.txt
+        run: |
+          cargo package --locked --no-verify --list | tee /tmp/pkg-list.txt
+          if grep -Eq "docs/internal|tasks/" /tmp/pkg-list.txt; then
+            echo "Internal files found in package"
+            exit 1
+          fi
 
       - name: MSRV check (Cargo.toml rust-version)
         run: |
           cargo metadata --format-version=1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d["packages"][0]["rust_version"]; assert v=="1.75", f"rust-version mismatch: {v}"; print(f"MSRV {v} OK")'
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Name release binary
+        env:
+          TAG: ${{ github.ref_name }}
+        run: cp target/release/opencode-bridge "opencode-bridge-${TAG}-${{ matrix.os }}"
+
+      - name: Upload release binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-bridge-${{ matrix.os }}
+          path: opencode-bridge-${{ github.ref_name }}-${{ matrix.os }}
+          if-no-files-found: error
+
+  release:
+    name: publish GitHub Release
+    needs: check
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" dist/* --verify-tag --title "$TAG" --generate-notes

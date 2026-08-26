@@ -52,6 +52,21 @@ To run against a live opencode2 service you need the service running
    half-open?" and "what does this look like with a foreign session also on the
    server?" — both happen in production.
 
+## Releases
+
+Releases use annotated SemVer tags in the conventional `vMAJOR.MINOR.PATCH`
+form, such as `v0.1.0`. After updating `CHANGELOG.md` and verifying the local
+gates, create and push the tag:
+
+```sh
+git tag -a v0.1.0 -m "Release v0.1.0"
+git push origin v0.1.0
+```
+
+The tag-only GitHub workflow validates the tag, runs the Linux/macOS build and
+test matrix, and creates a GitHub Release with both release binaries. Branch
+and pull-request pushes do not run this workflow.
+
 ## Reporting bugs
 
 Use the [bug report issue template](.github/ISSUE_TEMPLATE/bug_report.md).
