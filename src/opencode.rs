@@ -77,18 +77,14 @@ pub struct ModelInfo {
 /// p99 for an in-process server.
 const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// The model an agent is pinned to (`GET /api/agent` → `.model`). Like
-/// `ModelRef` but also carries `variant` — the effort/reasoning level (e.g.
-/// "medium" vs "xhigh") that's the only thing distinguishing agents like
-/// `luna` from `luna-high`. Null for built-in agents (Build/Explore/etc.)
-/// that inherit the session's default model instead of pinning one.
+/// The model an agent is pinned to (`GET /api/agent` → `.model`). Null for
+/// built-in agents (Build/Explore/etc.) that inherit the session's default
+/// model instead of pinning one.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentModel {
     pub id: String,
     #[serde(rename = "providerID")]
     pub provider_id: String,
-    #[serde(default)]
-    pub variant: Option<String>,
 }
 
 /// One opencode agent from `GET /api/agent` (SPEC.md §5). The name is the
@@ -98,8 +94,6 @@ pub struct AgentInfo {
     pub name: String,
     #[serde(default)]
     pub description: Option<String>,
-    #[serde(default)]
-    pub mode: Option<String>,
     #[serde(default)]
     pub hidden: bool,
     #[serde(default)]

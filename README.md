@@ -26,7 +26,7 @@ Four MCP tools, each broader than they look:
 | `opencode_task` | Start a new opencode2 session **or** follow up on an existing one. Async by default — fire it and get notified when done. `wait=true` only when you really need the output inline. |
 | `opencode_sessions` | Inspect one session's detail (outcome, cost, tokens, last output) **or** list this CC session's sessions. Survives an MCP restart. |
 | `opencode_cancel` | Interrupt a running session's current turn. |
-| `opencode_catalog` | Browse the server's models (`GET /api/model`) or agents (`GET /api/agent`) with a substring/AND filter. |
+| `opencode_catalog` | Browse the server's agents and models as a scored, agents-first text table with a substring/AND filter. |
 
 The tool schemas in [`src/tools.rs`](src/tools.rs) are the source of truth for arguments.
 

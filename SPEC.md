@@ -209,9 +209,11 @@ Methods handled:
 - `tools/list` → reply `{"tools":[ ... each tool's {name, description,
   inputSchema} ... ]}`. `inputSchema` is a JSON Schema object per tool (§5).
 - `tools/call` params `{name, arguments}` → dispatch to the tool, reply
-  `{"content":[{"type":"text","text":"<json-encoded result>"}]}`. On error,
-  reply with `{"content":[{"type":"text","text":"<err>"}],"isError":true}`
-  (preserves the JSON-RPC `id`).
+  `{"content":[{"type":"text","text":"<result>"}]}`. String results are
+  emitted as plain text; structured results are JSON-encoded in the text
+  content. On error, reply with
+  `{"content":[{"type":"text","text":"<err>"}],"isError":true}` (preserves
+  the JSON-RPC `id`).
 
 Requests carry an `id` (echo it). Notifications have no `id` (send nothing
 back). Verify the exact `protocolVersion` the client sends in `initialize`
@@ -224,7 +226,9 @@ task/channel so concurrent replies never interleave bytes on stdout.
 
 ## 5. MCP tools
 
-All results returned as JSON text. `session_id` is opencode's `ses_...`.
+Tool results use MCP text content. Structured results are JSON-encoded in that
+text; `opencode_catalog` returns its catalog rows as plain text.
+`session_id` is opencode's `ses_...`.
 
 ### `opencode_task`
 
@@ -286,23 +290,51 @@ Returns `{session_id, cancelled:true}`.
 
 ### `opencode_catalog`
 
-Look up what's available to run tasks with: the opencode2 server's models
-or agents. `kind` selects which list. `query` filters (case-insensitive
-substring; space-separated terms ANDed — all must match).
+Look up what's available to run tasks with. The result is a plain-text table
+sorted by relevance, with agents before raw models. `kind` selects which
+section; it defaults to `"all"`, which returns both sections. `query` filters
+(case-insensitive substring; space-separated terms ANDed — all must match).
 
 Arguments:
 
 | name | type | default | notes |
 | --- | --- | --- | --- |
-| `kind` | `"models"\|"agents"` | — | Required. `"models"` = model catalog (search over `providerID/id/name`). `"agents"` = agent tags you pass as `opencode_task`'s `agent` (search over `name/description`). |
+| `kind` | `"models"\|"agents"\|"all"` | `"all"` | `"models"` = model catalog. `"agents"` = agent tags you pass as `opencode_task`'s `agent`. `"all"` = both sections, agents first. |
 | `query` | string | — | Case-insensitive substring filter; space-separated terms are ANDed. Omit to list all. |
 | `include_hidden` | bool | `false` | `kind=agents` only: include agents opencode marks hidden. |
 
-Model results are capped at 200 (the response carries `matched`, `returned`,
-and `truncated` so the caller knows). Agent rows carry `name`, `mode`,
-`description`, `model` (`"providerID/id"` or null if inherited), `variant`
-(the effort level — the only thing distinguishing e.g. `luna` from
-`luna-high`), and `hidden`.
+The text format is one row per result. Agent rows use four fixed-width
+columns:
+
+```
+<name, 16 chars> <model id, 18 chars> <description, 30 chars> <score, 3 digits>
+```
+
+The model column shows `providerID/id` (truncated to 18 chars with `…`) or `—` if
+the agent inherits the session model. Descriptions longer than 30 characters
+are truncated with `…`. Model rows use:
+
+```
+<providerID/id, 30 chars> <name, 30 chars> <score, 3 digits>
+```
+
+For `kind="all"`, the output contains `── Agents ──` and `── Models ──`
+section headers, omitting a header when that section has no results. Empty
+single-section results are reported as `No agents found.` or `No models
+found.`; an empty combined result is `No results.`.
+
+Scores are `bonus + relevance`, where agents receive a 50-point bonus and
+models receive no bonus. Relevance is BM25 lexical-search relevance normalized
+to 0–50 within the catalog corpus. Query terms and searchable text use
+case-insensitive whitespace tokens; a token containing a term counts as a
+match, preserving substring search for handles such as `deepseek-v4`.
+Candidates still require every space-separated query term to match. With a
+query omitted, agents score 50 and models score 0. Results sort by score
+descending, so agents sort above models.
+
+Model results are capped at 200. Combined results are capped at 200 total,
+with agents taking priority; when a result is capped, a footer says how many
+of the matched results were shown and suggests refining the query.
 
 ### Missed-event / reconnect guard
 
@@ -328,8 +360,9 @@ the gap. Two layers keep this correct:
    --check` green. `cargo test` green.
 2. **Pure unit tests** (`cargo test`): tool-surface cross-check
    (`definitions_lists_four_tools_with_expected_names`), `parse_model`
-   string/object validation, `matches_query` semantics, `slugify`
-   shape, `latest_assistant_text` reasoning-vs-text separation,
+   string/object validation, `matches_query` semantics, BM25 relevance and
+   catalog row formatting, `slugify` shape, `latest_assistant_text`
+   reasoning-vs-text separation,
    `Status::from_outcome` wire-format boundary, claim idempotency,
    followup re-arm, unregister rollback. These run in milliseconds
    and don't need opencode running.

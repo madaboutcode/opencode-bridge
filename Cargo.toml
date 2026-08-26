@@ -10,9 +10,9 @@ readme = "README.md"
 keywords = ["mcp", "opencode", "claude-code", "sse", "agent"]
 categories = ["command-line-utilities", "development-tools"]
 # Exclude build-session provenance from the published package — README
-# describes docs/internal/ as private; nothing in there should ship to
-# crates.io users.
-exclude = ["docs/internal/**", ".github/ISSUE_TEMPLATE", ".github/PULL_REQUEST_TEMPLATE.md"]
+# describes docs/internal/ as private, and tasks/ contains local handoffs and
+# plans; nothing in either location should ship to crates.io users.
+exclude = ["docs/internal/**", "tasks/**", ".github/ISSUE_TEMPLATE", ".github/PULL_REQUEST_TEMPLATE.md"]
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "net", "process", "sync", "time"] }

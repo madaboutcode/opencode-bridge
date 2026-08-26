@@ -8,7 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 
 use crate::error::Result;
-use crate::opencode::ModelRef;
+use crate::opencode::{AgentInfo, ModelInfo, ModelRef};
 use crate::registry::Status;
 use crate::state::AppState;
 
@@ -65,15 +65,14 @@ pub fn definitions() -> Vec<Value> {
         }),
         json!({
             "name": "opencode_catalog",
-            "description": "Look up what's available to run tasks with: the opencode2 server's models or agents. Set kind=\"models\" or kind=\"agents\". Pass query to filter (case-insensitive substring, space-separated terms ANDed) — the server has hundreds of models, so a query is usually what you want. Model results are capped (see `truncated`); agent results exclude hidden internal agents unless include_hidden=true.",
+            "description": "Look up what's available to run tasks with — returns a plain-text table sorted by relevance. **Agents come first**; use them with opencode_task's `agent` parameter. Raw models are fallbacks when no agent fits. Pass query to filter (case-insensitive substring, space-separated terms ANDed). kind=\"all\" (default) merges both; kind=\"agents\" or kind=\"models\" for one section only.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
-                    "kind": {"type": "string", "enum": ["models", "agents"], "description": "\"models\" = model catalog (search over providerID/id/name). \"agents\" = agent tags you pass as opencode_task's `agent` (search over name/description)."},
+                    "kind": {"type": "string", "default": "all", "enum": ["models", "agents", "all"], "description": "\"models\" = model catalog. \"agents\" = agent tags you pass as opencode_task's `agent`. \"all\" (default) = both merged, agents first. Agents are preferred over raw models."},
                     "query": {"type": "string", "description": "Case-insensitive substring filter; space-separated terms are ANDed (all must match). Omit to list all."},
                     "include_hidden": {"type": "boolean", "description": "kind=agents only: include agents opencode marks hidden (internal helpers like Title/Summary). Default false."}
                 },
-                "required": ["kind"]
             }
         }),
     ]
@@ -90,6 +89,112 @@ fn matches_query(query: &str, haystack: &str) -> bool {
         .all(|term| hay.contains(&term.to_lowercase()))
 }
 
+/// Rank catalog entries with BM25, a standard lexical-search scorer. The
+/// existing substring matcher decides which rows are eligible; BM25 only
+/// ranks those matches. Tokens are whitespace-delimited so partial queries
+/// such as `deepseek` still match model handles like `deepseek-v4`.
+fn bm25_scores(query: &str, documents: &[String]) -> Vec<u32> {
+    const K1: f64 = 1.2;
+    const B: f64 = 0.75;
+
+    let terms: Vec<String> =
+        query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .fold(Vec::new(), |mut terms, term| {
+                if !terms.contains(&term) {
+                    terms.push(term);
+                }
+                terms
+            });
+    if terms.is_empty() || documents.is_empty() {
+        return vec![0; documents.len()];
+    }
+
+    let tokenized: Vec<Vec<String>> = documents
+        .iter()
+        .map(|document| document.split_whitespace().map(str::to_lowercase).collect())
+        .collect();
+    let document_count = tokenized.len() as f64;
+    let average_length =
+        tokenized.iter().map(|tokens| tokens.len()).sum::<usize>() as f64 / document_count;
+
+    let raw_scores: Vec<f64> = tokenized
+        .iter()
+        .map(|tokens| {
+            let document_length = tokens.len() as f64;
+            terms
+                .iter()
+                .map(|term| {
+                    let term_frequency =
+                        tokens.iter().filter(|token| token.contains(term)).count() as f64;
+                    if term_frequency == 0.0 {
+                        return 0.0;
+                    }
+                    let document_frequency = tokenized
+                        .iter()
+                        .filter(|other| other.iter().any(|token| token.contains(term)))
+                        .count() as f64;
+                    let idf = ((document_count - document_frequency + 0.5)
+                        / (document_frequency + 0.5)
+                        + 1.0)
+                        .ln();
+                    let normalization =
+                        term_frequency + K1 * (1.0 - B + B * document_length / average_length);
+                    idf * term_frequency * (K1 + 1.0) / normalization
+                })
+                .sum()
+        })
+        .collect();
+
+    let maximum = raw_scores.iter().copied().fold(0.0, f64::max);
+    if maximum == 0.0 {
+        return vec![0; documents.len()];
+    }
+    raw_scores
+        .into_iter()
+        .map(|score| (score / maximum * 50.0).round() as u32)
+        .collect()
+}
+
+fn catalog_score(relevance: u32, is_agent: bool) -> u32 {
+    relevance + u32::from(is_agent) * 50
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        format!("{}…", s.chars().take(max - 1).collect::<String>())
+    }
+}
+
+fn format_agent_row(agent: &AgentInfo, score: u32) -> String {
+    let description = agent.description.as_deref().unwrap_or("");
+    let model_label = agent
+        .model
+        .as_ref()
+        .map(|m| format!("{}/{}", m.provider_id, m.id))
+        .unwrap_or_else(|| "—".to_string());
+    format!(
+        "{:<16} {:<18} {:<30} {:>3}",
+        truncate(&agent.name, 16),
+        truncate(&model_label, 18),
+        truncate(description, 30),
+        score
+    )
+}
+
+fn format_model_row(model: &ModelInfo, score: u32) -> String {
+    let handle = format!("{}/{}", model.provider_id, model.id);
+    format!(
+        "{:<30} {:<30} {:>3}",
+        truncate(&handle, 30),
+        truncate(&model.name, 30),
+        score
+    )
+}
+
 pub async fn call(state: &AppState, name: &str, args: Value) -> Result<Value> {
     match name {
         // Broad tools (SPEC.md §5): each dispatches on whether an optional
@@ -98,7 +203,7 @@ pub async fn call(state: &AppState, name: &str, args: Value) -> Result<Value> {
         "opencode_task" => task(state, args).await, // session_id absent = start, present = continue
         "opencode_sessions" => sessions(state, args).await, // session_id absent = list, present = detail
         "opencode_cancel" => cancel(state, args).await,
-        "opencode_catalog" => catalog(state, args).await, // kind = models | agents
+        "opencode_catalog" => catalog(state, args).await, // kind = models | agents | all
         other => Err(format!("unknown tool: {other}").into()),
     }
 }
@@ -115,11 +220,6 @@ fn opt_bool(args: &Value, key: &str, default: bool) -> Result<bool> {
         Some(Value::Bool(b)) => Ok(*b),
         Some(other) => Err(format!("{key} must be a boolean, got {other}").into()),
     }
-}
-
-#[allow(dead_code)]
-fn opt_str(args: &Value, key: &str) -> Option<String> {
-    args.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
 fn opt_str_strict(args: &Value, key: &str) -> Result<Option<String>> {
@@ -508,72 +608,213 @@ async fn cancel(state: &AppState, args: Value) -> Result<Value> {
 }
 
 /// `opencode_catalog`: `kind` selects which reference list to return —
-/// "models" (the model catalog) or "agents" (the agent tags). Both share
-/// the `query` substring filter; agents additionally honor `include_hidden`.
+/// "models", "agents", or both (the default). Both share the `query`
+/// substring filter; agents additionally honor `include_hidden`.
 async fn catalog(state: &AppState, args: Value) -> Result<Value> {
-    match require_str(&args, "kind")? {
-        "models" => catalog_models(state, args).await,
-        "agents" => catalog_agents(state, args).await,
-        other => Err(format!("kind must be \"models\" or \"agents\", got {other:?}").into()),
+    match opt_str_strict(&args, "kind")?.as_deref() {
+        None | Some("all") => catalog_all(state, args).await,
+        Some("models") => catalog_models(state, args).await,
+        Some("agents") => catalog_agents(state, args).await,
+        Some(other) => {
+            Err(format!("kind must be \"models\", \"agents\", or \"all\", got {other:?}").into())
+        }
     }
 }
 
 async fn catalog_models(state: &AppState, args: Value) -> Result<Value> {
-    const CAP: usize = 200; // SPEC.md §5: "cap the response size" — server has 685 models
+    const CAP: usize = 200;
     let query = opt_str_strict(&args, "query")?.unwrap_or_default();
-    let all = state.client.list_models().await?;
-    let mut enabled: Vec<_> = all
+    let models: Vec<_> = state
+        .client
+        .list_models()
+        .await?
         .into_iter()
         .filter(|m| m.enabled)
-        // Search over the "providerID/id" handle plus the display name, so a
-        // query like "deepseek v4" narrows to the right model (SPEC.md §5).
-        .filter(|m| matches_query(&query, &format!("{}/{} {}", m.provider_id, m.id, m.name)))
         .collect();
-    enabled.sort_by(|a, b| (&a.provider_id, &a.id).cmp(&(&b.provider_id, &b.id)));
-    let matched = enabled.len();
-    let truncated = matched > CAP;
-    enabled.truncate(CAP);
-    let items: Vec<Value> = enabled
+    let documents: Vec<String> = models
         .iter()
-        .map(|m| json!({"id": m.id, "providerID": m.provider_id, "name": m.name}))
+        .map(|m| format!("{}/{} {}", m.provider_id, m.id, m.name))
         .collect();
-    Ok(
-        json!({"models": items, "matched": matched, "returned": items.len(), "truncated": truncated}),
-    )
+    let scores = bm25_scores(&query, &documents);
+    let mut items = Vec::new();
+    for ((m, searchable), score) in models.into_iter().zip(documents).zip(scores) {
+        if !matches_query(&query, &searchable) {
+            continue;
+        }
+        let handle = format!("{}/{}", m.provider_id, m.id);
+        let line = format_model_row(&m, score);
+        items.push((line, score, m.name.to_lowercase(), handle));
+    }
+    items.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
+    let matched = items.len();
+    let truncated = matched > CAP;
+    items.truncate(CAP);
+
+    let mut lines: Vec<String> = items.into_iter().map(|(line, _, _, _)| line).collect();
+    if truncated {
+        lines.push(format!(
+            "({} of {} shown — refine your query to narrow results)",
+            CAP, matched
+        ));
+    }
+
+    if lines.is_empty() {
+        return Ok(Value::String("No models found.".to_string()));
+    }
+
+    Ok(Value::String(lines.join("\n")))
 }
 
 async fn catalog_agents(state: &AppState, args: Value) -> Result<Value> {
     let query = opt_str_strict(&args, "query")?.unwrap_or_default();
     let include_hidden = opt_bool(&args, "include_hidden", false)?;
-    let mut all = state.client.list_agents().await?;
-    all.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-    let items: Vec<Value> = all
+    let agents: Vec<_> = state
+        .client
+        .list_agents()
+        .await?
         .into_iter()
         .filter(|a| include_hidden || !a.hidden)
-        .filter(|a| {
-            let desc = a.description.as_deref().unwrap_or("");
-            matches_query(&query, &format!("{} {}", a.name, desc))
-        })
-        .map(|a| {
-            // "providerID/id" handle, plus the variant (effort level) so
-            // e.g. luna vs luna-high are distinguishable. null model = the
-            // agent inherits the session default (built-ins like Build).
-            let model = a
-                .model
-                .as_ref()
-                .map(|m| format!("{}/{}", m.provider_id, m.id));
-            let variant = a.model.as_ref().and_then(|m| m.variant.clone());
-            json!({
-                "name": a.name,
-                "mode": a.mode,
-                "description": a.description,
-                "model": model,
-                "variant": variant,
-                "hidden": a.hidden,
-            })
-        })
         .collect();
-    Ok(json!({"agents": items, "count": items.len()}))
+    let documents: Vec<String> = agents
+        .iter()
+        .map(|a| format!("{} {}", a.name, a.description.as_deref().unwrap_or("")))
+        .collect();
+    let scores = bm25_scores(&query, &documents);
+    let mut items = Vec::new();
+    for ((a, searchable), relevance) in agents.into_iter().zip(documents).zip(scores) {
+        if !matches_query(&query, &searchable) {
+            continue;
+        }
+        let score = catalog_score(relevance, true);
+        let name = a.name.clone();
+        let line = format_agent_row(&a, score);
+        items.push((line, score, name.to_lowercase()));
+    }
+    items.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+
+    if items.is_empty() {
+        return Ok(Value::String("No agents found.".to_string()));
+    }
+
+    Ok(Value::String(
+        items
+            .into_iter()
+            .map(|(line, _, _)| line)
+            .collect::<Vec<_>>()
+            .join("\n"),
+    ))
+}
+
+fn render_catalog(
+    agents: Vec<(String, u32, String)>,
+    models: Vec<(String, u32, String, String)>,
+) -> String {
+    const CAP: usize = 200;
+    let matched = agents.len() + models.len();
+    let truncated = matched > CAP;
+    let agent_count = agents.len().min(CAP);
+    let model_count = (CAP - agent_count).min(models.len());
+
+    let mut lines: Vec<String> = Vec::new();
+    if agent_count > 0 {
+        lines.push("── Agents ──".to_string());
+        lines.extend(
+            agents
+                .into_iter()
+                .take(agent_count)
+                .map(|(line, _, _)| line),
+        );
+    }
+    if !models.is_empty() {
+        if !lines.is_empty() {
+            lines.push(String::new());
+        }
+        lines.push("── Models ──".to_string());
+        lines.extend(
+            models
+                .into_iter()
+                .take(model_count)
+                .map(|(line, _, _, _)| line),
+        );
+    }
+
+    if truncated {
+        lines.push(format!(
+            "({} of {} shown — refine your query to narrow results)",
+            CAP, matched
+        ));
+    }
+
+    if lines.is_empty() {
+        "No results.".to_string()
+    } else {
+        lines.join("\n")
+    }
+}
+
+async fn catalog_all(state: &AppState, args: Value) -> Result<Value> {
+    let query = opt_str_strict(&args, "query")?.unwrap_or_default();
+    let include_hidden = opt_bool(&args, "include_hidden", false)?;
+
+    let all_agents: Vec<_> = state
+        .client
+        .list_agents()
+        .await?
+        .into_iter()
+        .filter(|a| include_hidden || !a.hidden)
+        .collect();
+    let all_models: Vec<_> = state
+        .client
+        .list_models()
+        .await?
+        .into_iter()
+        .filter(|m| m.enabled)
+        .collect();
+    let agent_documents: Vec<String> = all_agents
+        .iter()
+        .map(|a| format!("{} {}", a.name, a.description.as_deref().unwrap_or("")))
+        .collect();
+    let model_documents: Vec<String> = all_models
+        .iter()
+        .map(|m| format!("{}/{} {}", m.provider_id, m.id, m.name))
+        .collect();
+    let mut documents = agent_documents.clone();
+    documents.extend(model_documents.iter().cloned());
+    let scores = bm25_scores(&query, &documents);
+    let (agent_scores, model_scores) = scores.split_at(all_agents.len());
+
+    let mut agents = Vec::new();
+    for ((a, searchable), relevance) in all_agents
+        .into_iter()
+        .zip(agent_documents)
+        .zip(agent_scores.iter().copied())
+    {
+        if !matches_query(&query, &searchable) {
+            continue;
+        }
+        let score = catalog_score(relevance, true);
+        let name = a.name.clone();
+        let line = format_agent_row(&a, score);
+        agents.push((line, score, name.to_lowercase()));
+    }
+    agents.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.0.cmp(&b.0)));
+
+    let mut models = Vec::new();
+    for ((m, searchable), score) in all_models
+        .into_iter()
+        .zip(model_documents)
+        .zip(model_scores.iter().copied())
+    {
+        if !matches_query(&query, &searchable) {
+            continue;
+        }
+        let handle = format!("{}/{}", m.provider_id, m.id);
+        let line = format_model_row(&m, score);
+        models.push((line, score, m.name.to_lowercase(), handle));
+    }
+    models.sort_by(|a, b| b.1.cmp(&a.1).then(a.2.cmp(&b.2)).then(a.3.cmp(&b.3)));
+
+    Ok(Value::String(render_catalog(agents, models)))
 }
 
 #[cfg(test)]
@@ -658,6 +899,111 @@ mod tests {
     }
 
     #[test]
+    fn strict_optional_string_rejects_wrong_types() {
+        assert_eq!(opt_str_strict(&json!({}), "kind").unwrap(), None);
+        assert_eq!(
+            opt_str_strict(&json!({"kind": "agents"}), "kind").unwrap(),
+            Some("agents".to_string())
+        );
+        assert!(opt_str_strict(&json!({"kind": true}), "kind").is_err());
+    }
+
+    #[test]
+    fn bm25_empty_query_has_no_relevance() {
+        let documents = vec!["anything".to_string(), "something else".to_string()];
+        assert_eq!(bm25_scores("", &documents), vec![0, 0]);
+    }
+
+    #[test]
+    fn bm25_prefers_shorter_matching_documents() {
+        let documents = vec!["deepseek pro fast".to_string(), "deepseek pro".to_string()];
+        let scores = bm25_scores("deepseek pro", &documents);
+        assert!(scores[1] > scores[0]);
+        assert_eq!(scores[1], 50);
+    }
+
+    #[test]
+    fn bm25_scores_partial_and_nonmatching_documents_lower() {
+        let documents = vec![
+            "deepseek pro".to_string(),
+            "deepseek".to_string(),
+            "other".to_string(),
+        ];
+        let scores = bm25_scores("deepseek pro", &documents);
+        assert_eq!(scores[0], 50);
+        assert!(scores[1] < scores[0]);
+        assert_eq!(scores[2], 0);
+    }
+
+    #[test]
+    fn catalog_score_reserves_top_half_for_agents() {
+        assert_eq!(catalog_score(0, false), 0);
+        assert_eq!(catalog_score(50, false), 50);
+        assert_eq!(catalog_score(0, true), 50);
+        assert_eq!(catalog_score(50, true), 100);
+    }
+
+    #[test]
+    fn truncate_short_string() {
+        assert_eq!(truncate("hello", 10), "hello");
+    }
+
+    #[test]
+    fn truncate_long_string() {
+        let s = "a".repeat(50);
+        assert_eq!(truncate(&s, 10), "aaaaaaaaa…");
+        assert_eq!(truncate(&s, 10).chars().count(), 10);
+    }
+
+    #[test]
+    fn catalog_rows_are_plain_text_and_truncated_to_columns() {
+        let agent = AgentInfo {
+            name: "abcdefghijklmnopq".into(),
+            description: Some(
+                "a description that is deliberately longer than thirty characters".into(),
+            ),
+            hidden: false,
+            model: Some(AgentModel {
+                id: "a-very-long-model-id".into(),
+                provider_id: "provider".into(),
+            }),
+        };
+        let agent_row = format_agent_row(&agent, 100);
+        assert!(agent_row.starts_with("abcdefghijklmno…"));
+        assert!(agent_row.contains("provider/a-very-l…"));
+        assert!(agent_row.ends_with("100"));
+
+        let model = ModelInfo {
+            id: "model".into(),
+            provider_id: "provider".into(),
+            name: "Display name".into(),
+            enabled: true,
+        };
+        let model_row = format_model_row(&model, 50);
+        assert_eq!(&model_row[..30], "provider/model                ");
+        assert_eq!(&model_row[31..61], "Display name                  ");
+        assert_eq!(&model_row[62..], " 50");
+    }
+
+    #[test]
+    fn capped_combined_catalog_keeps_header_for_hidden_matches() {
+        let agents = (0..201)
+            .map(|i| (format!("agent-{i}"), 100, format!("agent-{i}")))
+            .collect();
+        let models = vec![(
+            "provider/model".into(),
+            50,
+            "model".into(),
+            "provider/model".into(),
+        )];
+
+        let rendered = render_catalog(agents, models);
+        assert!(rendered.contains("── Agents ──"));
+        assert!(rendered.contains("── Models ──"));
+        assert!(rendered.contains("(200 of 202 shown"));
+    }
+
+    #[test]
     fn slugify_lowercases_and_collapses_runs() {
         // Cosmetic only — these strings are written to opencode session
         // titles and never parsed back. Lock the shape so an accidental
@@ -725,19 +1071,16 @@ mod tests {
             AgentInfo {
                 name: "Build".into(),
                 description: Some("solid build agent".into()),
-                mode: Some("primary".into()),
                 hidden: false,
                 model: None,
             },
             AgentInfo {
                 name: "Title".into(),
                 description: Some("internal helper".into()),
-                mode: Some("subagent".into()),
                 hidden: true,
                 model: Some(AgentModel {
                     id: "x".into(),
                     provider_id: "y".into(),
-                    variant: None,
                 }),
             },
         ];

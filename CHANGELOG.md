@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Project prepared for open-source release (MIT license, README, CI, contributing docs).
+- `opencode_catalog` now returns a scored, agents-first plain-text table; omit `kind` or use `kind="all"` for both catalogs.
 
 ## [0.1.0] — 2026-08-26
 

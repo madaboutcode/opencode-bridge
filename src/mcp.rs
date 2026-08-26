@@ -178,8 +178,17 @@ async fn handle_tools_call(state: &Arc<AppState>, request: &Value) -> Result<Val
         .unwrap_or_else(|| json!({}));
 
     match tools::call(state, name, args).await {
-        Ok(result) => Ok(tools_call_result(result.to_string(), false)),
+        Ok(result) => Ok(tools_call_result(tool_result_text(result), false)),
         Err(e) => Ok(tools_call_result(e.to_string(), true)),
+    }
+}
+
+/// MCP text content should carry plain strings verbatim. Structured tool
+/// results remain JSON-encoded so callers can parse the existing object shape.
+fn tool_result_text(result: Value) -> String {
+    match result {
+        Value::String(text) => text,
+        other => other.to_string(),
     }
 }
 
@@ -198,4 +207,23 @@ fn reply(id: Option<Value>, result: Value) -> Value {
 
 fn error_reply(id: Value, code: i32, message: &str) -> Value {
     json!({"jsonrpc": "2.0", "id": id, "error": {"code": code, "message": message}})
+}
+
+#[cfg(test)]
+mod tests {
+    use super::tool_result_text;
+    use serde_json::json;
+
+    #[test]
+    fn string_tool_results_are_emitted_as_plain_text() {
+        assert_eq!(tool_result_text(json!("agent row")), "agent row");
+    }
+
+    #[test]
+    fn structured_tool_results_remain_json_text() {
+        assert_eq!(
+            tool_result_text(json!({"status": "running"})),
+            "{\"status\":\"running\"}"
+        );
+    }
 }
