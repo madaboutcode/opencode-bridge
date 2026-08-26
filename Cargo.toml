@@ -1,0 +1,19 @@
+[package]
+name = "opencode-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "MCP stdio server that drives opencode2 over HTTP + SSE — async-by-default task dispatch with completion callbacks into the launching MCP client session."
+license = "MIT"
+repository = "https://github.com/madaboutcode/opencode-bridge"
+readme = "README.md"
+keywords = ["mcp", "opencode", "claude-code", "sse", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "net", "process", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+eventsource-stream = "0.2.3"

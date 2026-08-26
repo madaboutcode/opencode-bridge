@@ -1,0 +1,10 @@
+* text=auto eol=lf
+
+*.rs text eol=lf diff=rust
+*.toml text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+
+# Don't diff these even though they're text
+LICENSE       merge=union
+CHANGELOG.md  merge=union

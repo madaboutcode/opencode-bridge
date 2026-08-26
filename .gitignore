@@ -1,0 +1,21 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Local config / secrets
+.env
+.env.local
+*.local
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
+
+# Tooling caches
+.cargo/
+.clippy.toml.bak
+rustfmt.toml.bak
