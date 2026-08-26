@@ -1,14 +1,14 @@
 # opencode-bridge
 
-A small **MCP stdio server** that gives Claude Code (and any other MCP client) `Agent`/`SendMessage`-style tools to drive [**opencode2**](https://github.com/sst/opencode) through its HTTP API + SSE event stream — no `opencode2 run` subprocesses.
+A small **MCP stdio server** that gives Claude Code `Agent`/`SendMessage`-style tools to drive [**opencode2**](https://github.com/sst/opencode) through its HTTP API + SSE event stream — no `opencode2 run` subprocesses.
 
-The headline feature: launch an async task and **get a completion callback pushed back into the launching Claude Code session** the instant the turn goes idle, instead of polling.
+The headline feature: launch an async task and **get a completion callback pushed back into the launching Claude Code session** the instant the turn goes idle, instead of polling. This callback channel uses Claude Code's cross-agent messaging protocol (AF_UNIX inbox socket) — MCP clients other than Claude Code can use the tools but won't receive async notifications.
 
 ```
 ┌────────────────────┐         stdio (JSON-RPC)        ┌─────────────────┐
 │  Claude Code       │  ───────────────────────────▶   │  opencode-      │
-│  (or any MCP       │  ◀───────────────────────────   │  bridge         │
-│   client)          │                                 └────────┬────────┘
+│  (MCP client       │  ◀───────────────────────────   │  bridge         │
+│   with inbox)      │                                 └────────┬────────┘
 └────────┬───────────┘                                          │
          │  AF_UNIX inbox socket                                │ HTTP + SSE
          │  (CLAUDE_CODE_MESSAGING_SOCKET)                      │
@@ -23,7 +23,7 @@ Four MCP tools, each broader than they look:
 
 | Tool | What it does |
 | --- | --- |
-| `opencode_task` | Start a new opencode2 session **or** follow up on an existing one. Async by default — fire it and get notified when done. `wait=true` only when you really need the output inline. |
+| `opencode_task` | Start a new opencode2 session **or** follow up on an existing one. Async by default — fires the task and notifies your Claude Code session when done (requires CC's inbox protocol; other MCP clients use `wait=true`). |
 | `opencode_sessions` | Inspect one session's detail (outcome, cost, tokens, last output) **or** list this CC session's sessions. Survives an MCP restart. |
 | `opencode_cancel` | Interrupt a running session's current turn. |
 | `opencode_catalog` | Browse the server's agents and models as a scored, agents-first text table with a substring/AND filter. |
@@ -69,7 +69,7 @@ Three interfaces, one process:
 
 1. **Northbound — MCP stdio.** Newline-delimited JSON-RPC 2.0 on stdin/stdout. The transport is hand-rolled (initialize / notifications/initialized / tools/list / tools/call). Logs go to stderr only; stdout carries protocol frames exclusively.
 2. **Southbound — opencode2 HTTP + SSE.** The bridge calls `opencode2 pair` at startup to read the bound URL, username, and password, then basic-auths every request. It opens `GET /api/event` (one global SSE stream for every session) and demuxes by `sessionID`.
-3. **Sideband — CC inbox socket.** When a tracked session goes terminal, the bridge fetches the final output and posts a short summary into the launching CC session's inbox over `$CLAUDE_CODE_MESSAGING_SOCKET`. The CC session sees it as a peer message the next time it idles between turns.
+3. **Sideband — CC inbox socket (Claude Code only).** When a tracked session goes terminal, the bridge fetches the final output and posts a short summary into the launching CC session's inbox over `$CLAUDE_CODE_MESSAGING_SOCKET`. The CC session sees it as a peer message the next time it idles between turns. Other MCP clients can still use the tools (set `wait=true` to get output inline) — they just don't receive async push notifications.
 
 ### Why no subprocess per task?
 
