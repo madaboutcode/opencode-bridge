@@ -12,4 +12,4 @@ Contents:
 
 Nothing in this directory is required to use or contribute to the bridge.
 The public docs are [`README.md`](../../README.md), [`SPEC.md`](../../SPEC.md),
-[`CONTRIBUTING.md`](../../CONTRIBUTING.md), and [`SECURITY.md`](../../SECURITY.md).
+and [`CONTRIBUTING.md`](../../CONTRIBUTING.md).

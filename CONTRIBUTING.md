@@ -81,9 +81,6 @@ Include:
 - Stderr from the bridge if you have it (stdout is the MCP stream and is
   usually a single line of JSON).
 
-For security issues, see [`SECURITY.md`](SECURITY.md) — please don't file them
-in public issues.
-
 ## Code of conduct
 
 This project follows the [Contributor Covenant](CODE_OF_CONDUCT.md). By
