@@ -239,14 +239,17 @@ impl Client {
     /// Sends one request and classifies the outcome: success, retryable
     /// (connect error / 401), or fatal. Doesn't hold the creds lock across
     /// the network await. `timeout` overrides the client's default
-    /// per-request timeout — pass `DEFAULT_REQUEST_TIMEOUT` for ordinary
-    /// calls, a longer duration for `/wait`, etc.
+    /// per-request timeout — `Some(DEFAULT_REQUEST_TIMEOUT)` for ordinary
+    /// calls, `Some(Duration::from_secs(300))` for `/wait`, and `None`
+    /// for the long-lived SSE stream (`/event`), which must stay open
+    /// indefinitely. Per-read idle timeouts live in `sse.rs` for the
+    /// SSE case; the HTTP layer doesn't impose one.
     async fn send_raw(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<&Value>,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> std::result::Result<reqwest::Response, SendError> {
         let (url, username, password) = {
             let creds = self.creds.read().await;
@@ -259,8 +262,10 @@ impl Client {
         let mut req = self
             .http
             .request(method, url)
-            .basic_auth(&username, Some(&password))
-            .timeout(timeout);
+            .basic_auth(&username, Some(&password));
+        if let Some(t) = timeout {
+            req = req.timeout(t);
+        }
         if let Some(b) = body {
             req = req.json(b);
         }
@@ -282,7 +287,7 @@ impl Client {
         method: reqwest::Method,
         path: &str,
         body: Option<&Value>,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> std::result::Result<Value, SendError> {
         let resp = self.send_raw(method, path, body, timeout).await?;
         let status = resp.status();
@@ -312,18 +317,19 @@ impl Client {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value> {
-        self.request_with_timeout(method, path, body, DEFAULT_REQUEST_TIMEOUT)
+        self.request_with_timeout(method, path, body, Some(DEFAULT_REQUEST_TIMEOUT))
             .await
     }
 
-    /// Same as `request` but with a per-call timeout. Use this when the
-    /// default 30s is wrong — currently only `/wait`, which must block.
+    /// Same as `request` but with a per-call timeout. `None` = no
+    /// HTTP-layer timeout (used by `/event`); `Some(d)` = cap at `d`
+    /// (used by `/wait`).
     async fn request_with_timeout(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<Value>,
-        timeout: Duration,
+        timeout: Option<Duration>,
     ) -> Result<Value> {
         match self
             .send_once(method.clone(), path, body.as_ref(), timeout)
@@ -429,10 +435,17 @@ impl Client {
     }
 
     pub async fn wait(&self, session_id: &str) -> Result<()> {
-        self.request(
+        // /wait must block until the turn goes idle — its purpose is to
+        // outlast the turn. Override the client's default 30s timeout with
+        // a longer per-request one (a few minutes) so the HTTP layer doesn't
+        // kill the call before the application-level WAIT_CAP kicks in.
+        // (tools.rs races /wait against tokio::time::timeout(WAIT_CAP, ...);
+        // see tools::wait_and_finish.)
+        self.request_with_timeout(
             reqwest::Method::POST,
             &format!("/session/{session_id}/wait"),
             None,
+            Some(Duration::from_secs(300)),
         )
         .await?;
         Ok(())
@@ -490,14 +503,12 @@ impl Client {
     }
 
     /// Opens the global SSE stream. The caller (sse.rs) owns reading it.
+    /// Uses `None` for the HTTP-layer timeout so a healthy long-lived SSE
+    /// stream isn't killed by the client's default per-request timeout —
+    /// per-read idle timeouts live in `sse.rs` for the half-open-TCP case.
     pub async fn events(&self) -> Result<reqwest::Response> {
         match self
-            .send_raw(
-                reqwest::Method::GET,
-                "/event",
-                None,
-                DEFAULT_REQUEST_TIMEOUT,
-            )
+            .send_raw(reqwest::Method::GET, "/event", None, None)
             .await
         {
             Ok(resp) if resp.status().is_success() => Ok(resp),
@@ -509,7 +520,7 @@ impl Client {
                     .await
                     .map_err(|e| format!("re-pair after {reason} failed: {e}"))?;
                 match self
-                    .send_raw(reqwest::Method::GET, "/event", None, DEFAULT_REQUEST_TIMEOUT)
+                    .send_raw(reqwest::Method::GET, "/event", None, None)
                     .await
                 {
                     Ok(resp) if resp.status().is_success() => Ok(resp),

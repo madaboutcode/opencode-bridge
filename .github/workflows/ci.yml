@@ -38,3 +38,9 @@ jobs:
 
       - name: cargo test
         run: cargo test --all-targets --locked
+
+      - name: cargo package --list (no internal docs)
+        run: cargo package --locked --allow-dirty --no-verify --list | tee /tmp/pkg-list.txt && ! grep -q "docs/internal" /tmp/pkg-list.txt
+
+      - name: MSRV check (Cargo.toml rust-version)
+        run: cargo metadata --format-version=1 --no-deps | python3 -c "import json,sys; d=json.load(sys.stdin); v=d['packages'][0]['rust_version']; assert v=='1.75', f\"rust-version mismatch: {v}\"; print(f\"MSRV {v} OK\")"

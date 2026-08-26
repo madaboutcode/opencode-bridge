@@ -59,7 +59,7 @@ Restart Claude Code. The bridge runs as a child of the CC process — no daemon,
 | --- | --- | --- |
 | `OPENCODE2_BIN` | Path to the `opencode2` binary | `~/.opencode/bin/opencode2` |
 | `CLAUDE_CODE_MESSAGING_SOCKET` | AF_UNIX path for the CC inbox callback channel. Empty ⇒ callbacks disabled (async tasks still complete, you just don't get pinged). | inherited from CC, else unset |
-| `CLAUDE_CODE_MESSAGING_TOKEN` | Token for the CC inbox socket (required on Windows, optional on macOS/Linux). | inherited from CC, else unset |
+| `CLAUDE_CODE_MESSAGING_TOKEN` | Optional auth token for the CC inbox socket. | inherited from CC, else unset |
 
 Everything else — port, password, model selection — comes from `opencode2 pair` and is rotated automatically on credential rot (see [How it works](#how-it-works)).
 
@@ -97,9 +97,10 @@ Documented in [`SPEC.md`](SPEC.md) §8, not engineered around:
 
 ```sh
 cargo build                  # debug build
-cargo test                   # run tests (smoke tests for MCP handshake; see SPEC §6)
+cargo test                   # unit tests (pure functions; see SPEC §6)
 cargo clippy -- -D warnings  # lint
 cargo fmt --check            # formatting
+# Manual smoke tests against a live opencode2 service — see below and SPEC §6.
 ```
 
 To exercise the bridge against a live opencode2 service:

@@ -108,6 +108,29 @@ impl Registry {
             .remove(session_id);
     }
 
+    /// Returns a clone of the current `Tracked` for a session. Used by
+    /// `tools::task` to snapshot state before `reset_for_followup`, so a
+    /// failed `/prompt` can restore the prior turn's state instead of
+    /// leaving a phantom "running" entry that a later sweep would
+    /// mis-fire on.
+    pub fn snapshot(&self, session_id: &str) -> Option<Tracked> {
+        self.sessions
+            .lock()
+            .expect("registry mutex poisoned")
+            .get(session_id)
+            .cloned()
+    }
+
+    /// Replaces a session's entry with a previously-snapshotted one. Used
+    /// to roll back `reset_for_followup` when `/prompt` fails — see
+    /// `snapshot`.
+    pub fn restore(&self, session_id: &str, snapshot: Tracked) {
+        self.sessions
+            .lock()
+            .expect("registry mutex poisoned")
+            .insert(session_id.to_string(), snapshot);
+    }
+
     pub fn is_tracked(&self, session_id: &str) -> bool {
         self.sessions
             .lock()

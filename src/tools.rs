@@ -109,12 +109,25 @@ fn require_str<'a>(args: &'a Value, key: &str) -> Result<&'a str> {
         .ok_or_else(|| format!("missing or non-string required argument: {key}").into())
 }
 
-fn opt_bool(args: &Value, key: &str, default: bool) -> bool {
-    args.get(key).and_then(Value::as_bool).unwrap_or(default)
+fn opt_bool(args: &Value, key: &str, default: bool) -> Result<bool> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(default),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(other) => Err(format!("{key} must be a boolean, got {other}").into()),
+    }
 }
 
+#[allow(dead_code)]
 fn opt_str(args: &Value, key: &str) -> Option<String> {
     args.get(key).and_then(Value::as_str).map(str::to_string)
+}
+
+fn opt_str_strict(args: &Value, key: &str) -> Result<Option<String>> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => Ok(Some(s.clone())),
+        Some(other) => Err(format!("{key} must be a string, got {other}").into()),
+    }
 }
 
 /// Accepts `model` as either a `"providerID/modelID"` string (split on the
@@ -145,19 +158,36 @@ fn parse_model(args: &Value, key: &str) -> Result<Option<ModelRef>> {
 /// branches share the `wait`/`notify` async-vs-sync tail (`wait_and_finish`).
 async fn task(state: &AppState, args: Value) -> Result<Value> {
     let prompt = require_str(&args, "prompt")?.to_string();
-    let wait = opt_bool(&args, "wait", false);
-    let notify = opt_bool(&args, "notify", true);
+    let wait = opt_bool(&args, "wait", false)?;
+    let notify = opt_bool(&args, "notify", true)?;
 
-    let session_id = match opt_str(&args, "session_id") {
+    // For wait=true we take the notification pre-claim BEFORE /prompt so
+    // the SSE consumer can never observe a fast-fail terminal event before
+    // we hold the slot (otherwise wait=true would both return inline AND
+    // fire the async callback — a double report, SPEC §7.5). The claim is
+    // an RAII guard: on any non-success exit Drop releases it (notified=
+    // false, notify=true); commit() on the success tail keeps it. We
+    // create the guard in task() and thread it into wait_and_finish().
+    let (session_id, pre_claim) = match opt_str_strict(&args, "session_id")? {
         // CONTINUE: followup on an existing session.
         Some(session_id) => {
             // SPEC.md §5 DECISION: default delivery = queue (let the current
             // turn finish); "steer" interrupts it. Only meaningful here.
-            let delivery = opt_str(&args, "delivery").unwrap_or_else(|| "queue".to_string());
-            // Track whether the registry insert was done by THIS call —
-            // used below to decide whether to roll back on `/prompt` failure
-            // (a previously-tracked session is left alone; the failure
-            // applies only to the followup we just queued).
+            let delivery =
+                opt_str_strict(&args, "delivery")?.unwrap_or_else(|| "queue".to_string());
+            if delivery != "queue" && delivery != "steer" {
+                return Err(
+                    format!("delivery must be \"queue\" or \"steer\", got {delivery:?}").into(),
+                );
+            }
+            // Snapshot before mutating, so a failed /prompt can restore the
+            // prior turn's state instead of leaving a phantom "running" entry
+            // that a later sweep would mis-fire on with stale output.
+            let prior_snapshot = if state.registry.is_tracked(&session_id) {
+                state.registry.snapshot(&session_id)
+            } else {
+                None
+            };
             let inserted_now = if state.registry.is_tracked(&session_id) {
                 // Re-arm: a second followup must be able to notify again.
                 state
@@ -173,32 +203,46 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
                     .register(session_id.clone(), prompt.clone(), None, None, notify);
                 true
             };
+            // Pre-claim BEFORE /prompt (wait=true only) — closes the
+            // /prompt → wait_and_finish race window described above.
+            let pre_claim = if wait {
+                state.registry.claim_notification_guard(&session_id)
+            } else {
+                None
+            };
             if let Err(e) = state
                 .client
                 .prompt(&session_id, &prompt, Some(&delivery), &state.origin)
                 .await
             {
-                // Foreign-session followup that we just registered and that
-                // failed: unregister so we don't claim notify on events for
-                // a session we never drove. A previously-tracked session
-                // (inserted_now=false) stays registered — the prior turn's
-                // state is still valid, this followup just didn't happen.
                 if inserted_now {
                     state.registry.unregister(&session_id);
+                } else if let Some(prior) = prior_snapshot {
+                    // Already-tracked session: /prompt failed, so the new
+                    // turn never started — restore the prior turn's state
+                    // so a later sweep doesn't see a phantom running turn
+                    // and emit a stale callback with the prior output.
+                    state.registry.restore(&session_id, prior);
                 }
+                // pre_claim (if any) drops here — on a restored entry this
+                // sets notified=false/notify=true on the prior turn, which
+                // is dormant (no new turn is running) and harmless; a
+                // subsequent reset_for_followup will re-arm correctly.
+                drop(pre_claim);
                 return Err(e);
             }
-            session_id
+            (session_id, pre_claim)
         }
         // START: create a new session, then prompt it. model/agent/directory/
         // title apply only on this branch.
         None => {
             let model = parse_model(&args, "model")?;
-            let agent = opt_str(&args, "agent");
-            let title = opt_str(&args, "title");
+            let agent = opt_str_strict(&args, "agent")?;
+            let title = opt_str_strict(&args, "title")?;
             // Explicit `directory` wins; else the bridge's startup cwd (the
             // project CC launched it from); else None → opencode's default.
-            let directory = opt_str(&args, "directory").or_else(|| state.default_dir.clone());
+            let directory =
+                opt_str_strict(&args, "directory")?.or_else(|| state.default_dir.clone());
 
             // SPEC.md §8 Layer 2: tag every session we create with
             // "cc-bridge:<origin>:<slug>" so opencode_sessions can rediscover
@@ -220,6 +264,13 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
             state
                 .registry
                 .register(session_id.clone(), prompt.clone(), model, agent, notify);
+            // Pre-claim BEFORE /prompt (wait=true only) — same race guard
+            // as the CONTINUE branch above.
+            let pre_claim = if wait {
+                state.registry.claim_notification_guard(&session_id)
+            } else {
+                None
+            };
             if let Err(e) = state
                 .client
                 .prompt(&session_id, &prompt, None, &state.origin)
@@ -230,17 +281,23 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
                 // work we never started — unregister so the SSE consumer
                 // doesn't fire a callback on its (orphan) terminal event.
                 // The opencode-side session is left in place; deleting it
-                // would need an undocumented endpoint.
+                // would need an undocumented endpoint. pre_claim drops
+                // after unregister — entry is gone, so no-op.
                 state.registry.unregister(&session_id);
+                drop(pre_claim);
                 return Err(e);
             }
-            session_id
+            (session_id, pre_claim)
         }
     };
 
     if wait {
-        wait_and_finish(state, &session_id).await
+        wait_and_finish(state, &session_id, pre_claim).await
     } else {
+        // wait=false: pre_claim is always None (we only take it for
+        // wait=true), so no guard to drop. SSE will claim when the turn
+        // goes terminal.
+        debug_assert!(pre_claim.is_none());
         Ok(json!({"session_id": session_id, "status": "running"}))
     }
 }
@@ -248,30 +305,23 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
 /// Shared sync-wait tail for `opencode_task`: block until idle
 /// (capped at `WAIT_CAP`), fetch the output, record it, and return the
 /// reply shape SPEC.md §5 documents for `wait=true`.
-async fn wait_and_finish(state: &AppState, session_id: &str) -> Result<Value> {
-    // Claim the notification slot up front, before racing the wait against
-    // the cap, via an RAII guard rather than the plain claim. This
-    // guarantees WE win the race against the SSE consumer for this turn's
-    // terminal event, so the caller never gets both a synchronous reply
-    // here AND an async CC callback for the same turn (SPEC.md §7.5: "the
-    // notify flag must prevent a double report").
-    //
-    // The guard matters because there isn't just one exit path to cover: a
-    // plain claim released only on the two paths a first draft remembers
-    // (cap timeout, success) still leaks on /wait erroring, a later `?`
-    // failing, or the whole task being cancelled (CC killing this
-    // `tools/call` mid-wait). Any of those would leave the claim held
-    // forever — the turn later completes, SSE finds it already claimed,
-    // and suppresses the callback, while this call never reported anything
-    // either. `NotifyClaim`'s `Drop` runs on every one of those exits
-    // (it's a stack local, not something reached by falling through code),
-    // so cleanup is unconditional. `commit()` on the success path is the
-    // only way to keep the claim instead.
-    //
-    // The registration in task() happens before this is ever called,
-    // so `claim` is always `Some` in practice; handled as `Option` anyway
-    // since a `None` here isn't a state worth crashing over.
-    let claim = state.registry.claim_notification_guard(session_id);
+///
+/// `pre_claim` is the RAII guard taken in `task()` BEFORE /prompt (see
+/// that function's comment for why). It already holds the notification
+/// slot for this turn, so the SSE consumer can never win a race against
+/// us — commit() on the success tail is the only way to keep the claim
+/// (no async dup); every other exit drops it (notified=false, notify=
+/// true) so the eventual terminal event still notifies via SSE/sweep.
+async fn wait_and_finish(
+    state: &AppState,
+    session_id: &str,
+    pre_claim: Option<crate::registry::NotifyClaim<'_>>,
+) -> Result<Value> {
+    // Reuse the pre-claim from task(). In the wait=true path task()
+    // always took one, so this is Some in practice; handle None anyway
+    // since a None here isn't a state worth crashing over (e.g. the
+    // session was somehow unregistered between task() and here).
+    let claim = pre_claim;
 
     match tokio::time::timeout(WAIT_CAP, state.client.wait(session_id)).await {
         Ok(Ok(())) => {}             // finished within the cap — fall through
@@ -342,9 +392,9 @@ fn epoch_millis(t: SystemTime) -> u128 {
 /// status + result merged into a single reply — metadata AND the last
 /// turn's output text); absent ⇒ list all sessions (the old list).
 async fn sessions(state: &AppState, args: Value) -> Result<Value> {
-    match opt_str(&args, "session_id") {
+    match opt_str_strict(&args, "session_id")? {
         Some(session_id) => detail_session(state, &session_id).await,
-        None => list_sessions(state, opt_bool(&args, "include_all", false)).await,
+        None => list_sessions(state, opt_bool(&args, "include_all", false)?).await,
     }
 }
 
@@ -470,7 +520,7 @@ async fn catalog(state: &AppState, args: Value) -> Result<Value> {
 
 async fn catalog_models(state: &AppState, args: Value) -> Result<Value> {
     const CAP: usize = 200; // SPEC.md §5: "cap the response size" — server has 685 models
-    let query = opt_str(&args, "query").unwrap_or_default();
+    let query = opt_str_strict(&args, "query")?.unwrap_or_default();
     let all = state.client.list_models().await?;
     let mut enabled: Vec<_> = all
         .into_iter()
@@ -493,8 +543,8 @@ async fn catalog_models(state: &AppState, args: Value) -> Result<Value> {
 }
 
 async fn catalog_agents(state: &AppState, args: Value) -> Result<Value> {
-    let query = opt_str(&args, "query").unwrap_or_default();
-    let include_hidden = opt_bool(&args, "include_hidden", false);
+    let query = opt_str_strict(&args, "query")?.unwrap_or_default();
+    let include_hidden = opt_bool(&args, "include_hidden", false)?;
     let mut all = state.client.list_agents().await?;
     all.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     let items: Vec<Value> = all

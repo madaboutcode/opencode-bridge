@@ -448,11 +448,15 @@ with a marker the server persists and the list returns:
   socket path if the filename isn't a bare pid). Fall back to a
   per-process random id if the socket env is empty.
 - **`metadata:{origin:"cc-bridge:<origin>", bridge:true}`** on every
-  `POST /prompt` as the authoritative backstop (survives a user renaming
-  the title in the TUI; title is user-visible/editable, metadata is not).
-  Title = fast list path; metadata = truth if the title was changed. On
-  rediscovery: filter by title prefix first; the metadata stamp is free
-  provenance but not a scan target (the per-message-fetch N+1 trap).
+  `POST /prompt` as an authoritative backstop (survives a user renaming
+  the title in the TUI; title is user-visible/editable, metadata is not)
+  and as free provenance for debugging. **Current implementation:**
+  `opencode_sessions` list mode filters solely on the `title` prefix
+  (`SessionInfo` carries `title`; `metadata` is per-message and would
+  require N extra `GET /message` fetches to scan — the N+1 trap noted
+  in the handoff). A TUI rename therefore drops the title tag until
+  the next prompt re-stamps `metadata`; the session remains reachable
+  by `session_id`.
 
 **INVARIANT — origin is a label, never a capability.** We notify ONLY
 sessions THIS bridge process launched (tracked in-memory with a live notify

@@ -121,11 +121,14 @@ async fn handle_request(state: &Arc<AppState>, request: Value) -> Option<Value> 
         "notifications/initialized" => None, // notification — no reply per JSON-RPC 2.0
         "tools/list" => reply_opt(id, json!({"tools": tools::definitions()})),
         "tools/call" => {
-            // handle_tools_call owns its id (to embed in the JSON-RPC
-            // reply); reply_opt needs the same id to decide whether to
-            // emit at all (notification-style requests get no reply).
-            let inner = handle_tools_call(state, id.clone(), &request).await;
-            reply_opt(id, inner)
+            // handle_tools_call returns the MCP `result` payload (NOT a
+            // JSON-RPC envelope). reply_opt wraps it for the wire, or
+            // returns None when `id` is missing (notification-style
+            // requests get no reply per JSON-RPC 2.0).
+            match handle_tools_call(state, &request).await {
+                Ok(result) => reply_opt(id, result),
+                Err(e) => id.map(|id| error_reply(id, -32602, &e)),
+            }
         }
         "" => {
             eprintln!("[bridge] mcp: request has no method: {request}");
@@ -151,14 +154,23 @@ fn is_supported_protocol_version(v: &str) -> bool {
     v == DEFAULT_PROTOCOL_VERSION
 }
 
-async fn handle_tools_call(state: &Arc<AppState>, id: Option<Value>, request: &Value) -> Value {
+/// Builds the MCP `tools/call` `result` payload (the inner
+/// `{"content": [...], "isError": true}` when needed, not a JSON-RPC
+/// envelope). The caller wraps it in the envelope. `isError` lives at
+/// the result level per the MCP spec — not inside the content item.
+fn tools_call_result(text: String, is_error: bool) -> Value {
+    let mut result = json!({"content": [{"type": "text", "text": text}]});
+    if is_error {
+        result["isError"] = json!(true);
+    }
+    result
+}
+
+async fn handle_tools_call(state: &Arc<AppState>, request: &Value) -> Result<Value, String> {
     let params = request.get("params").cloned().unwrap_or(Value::Null);
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
     if name.is_empty() {
-        return reply(
-            id,
-            json!({"content": [{"type": "text", "text": "tools/call missing \"name\""}], "isError": true}),
-        );
+        return Err("tools/call missing \"name\"".to_string());
     }
     let args = params
         .get("arguments")
@@ -166,14 +178,8 @@ async fn handle_tools_call(state: &Arc<AppState>, id: Option<Value>, request: &V
         .unwrap_or_else(|| json!({}));
 
     match tools::call(state, name, args).await {
-        Ok(result) => reply(
-            id,
-            json!({"content": [{"type": "text", "text": result.to_string()}]}),
-        ),
-        Err(e) => reply(
-            id,
-            json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
-        ),
+        Ok(result) => Ok(tools_call_result(result.to_string(), false)),
+        Err(e) => Ok(tools_call_result(e.to_string(), true)),
     }
 }
 

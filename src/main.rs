@@ -20,6 +20,27 @@ use state::AppState;
 
 #[tokio::main]
 async fn main() {
+    // Cheap --version/--help handling before we touch opencode discovery.
+    // CONTRIBUTING.md and bug-report templates reference these flags.
+    let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        println!("opencode-bridge {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+    if args.iter().any(|a| a == "--help" || a == "-h") {
+        println!("opencode-bridge {}", env!("CARGO_PKG_VERSION"));
+        println!("MCP stdio server that drives opencode2 over HTTP + SSE.");
+        println!();
+        println!("USAGE:");
+        println!("    opencode-bridge [--version] [--help]");
+        println!();
+        println!("ENV:");
+        println!("    OPENCODE2_BIN                   path to opencode2 binary");
+        println!("    CLAUDE_CODE_MESSAGING_SOCKET    AF_UNIX inbox for CC callbacks");
+        println!("    CLAUDE_CODE_MESSAGING_TOKEN     auth token for the inbox");
+        return;
+    }
+
     if let Err(e) = run().await {
         eprintln!("[bridge] fatal: {e}");
         std::process::exit(1);
