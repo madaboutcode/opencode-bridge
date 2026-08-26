@@ -114,7 +114,7 @@ async fn handle_request(state: &Arc<AppState>, request: Value) -> Option<Value> 
                 json!({
                     "protocolVersion": negotiated,
                     "capabilities": {"tools": {}},
-                    "serverInfo": {"name": "opencode-bridge", "version": "0.1.0"}
+                     "serverInfo": {"name": "opencode-bridge", "version": env!("CARGO_PKG_VERSION")}
                 }),
             )
         }

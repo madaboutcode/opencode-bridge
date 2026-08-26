@@ -67,16 +67,22 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
+      - name: Determine target triple
+        id: target
+        run: |
+          target="$(rustc -vV | sed -n 's/^host: //p')"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+
       - name: Name release binary
         env:
           TAG: ${{ github.ref_name }}
-        run: cp target/release/opencode-bridge "opencode-bridge-${TAG}-${{ matrix.os }}"
+        run: cp target/release/opencode-bridge "opencode-bridge-${TAG}-${{ steps.target.outputs.target }}"
 
       - name: Upload release binary
         uses: actions/upload-artifact@v4
         with:
-          name: opencode-bridge-${{ matrix.os }}
-          path: opencode-bridge-${{ github.ref_name }}-${{ matrix.os }}
+          name: opencode-bridge-${{ steps.target.outputs.target }}
+          path: opencode-bridge-${{ github.ref_name }}-${{ steps.target.outputs.target }}
           if-no-files-found: error
 
   release:
@@ -86,6 +92,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+
       - name: Download release binaries
         uses: actions/download-artifact@v4
         with:

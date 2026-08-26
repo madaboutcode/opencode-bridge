@@ -46,8 +46,9 @@ To run against a live opencode2 service you need the service running
    cargo clippy -- -D warnings
    cargo fmt
    ```
-4. Push the branch and open a PR. Use the PR template. CI will run the same
-   gates plus a build matrix on Linux and macOS.
+4. Push the branch and open a PR. Use the PR template. Release CI runs the
+   gates and build matrix only when a SemVer tag is pushed; run the local gates
+   above before opening a PR.
 5. Expect a review that asks "what does this look like with the SSE stream
    half-open?" and "what does this look like with a foreign session also on the
    server?" — both happen in production.
