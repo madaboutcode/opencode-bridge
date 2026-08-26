@@ -7,6 +7,7 @@
 use crate::error::Result;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use std::time::Duration;
 use tokio::sync::RwLock;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +68,14 @@ pub struct ModelInfo {
     #[serde(default)]
     pub enabled: bool,
 }
+
+/// Default per-request HTTP timeout for everything except `/wait` (which is
+/// governed by the application-level `WAIT_CAP` in `tools.rs`). A half-open
+/// TCP connection or an unresponsive opencode would otherwise stall ordinary
+/// calls indefinitely — including the periodic sweep, which iterates
+/// tracked sessions serially (SPEC §7.3). 30s is well above any reasonable
+/// p99 for an in-process server.
+const DEFAULT_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// The model an agent is pinned to (`GET /api/agent` → `.model`). Like
 /// `ModelRef` but also carries `variant` — the effort/reasoning level (e.g.
@@ -199,8 +208,15 @@ pub struct Client {
 
 impl Client {
     pub fn new(opencode2_bin: String, creds: Creds) -> Self {
+        // Default request timeout = DEFAULT_REQUEST_TIMEOUT. `/wait` overrides
+        // this on a per-request basis (it must, since the whole point of
+        // `/wait` is to block until the turn goes idle).
+        let http = reqwest::Client::builder()
+            .timeout(DEFAULT_REQUEST_TIMEOUT)
+            .build()
+            .expect("reqwest client builder with static config should not fail");
         Self {
-            http: reqwest::Client::new(),
+            http,
             creds: RwLock::new(creds),
             opencode2_bin,
         }
@@ -222,12 +238,15 @@ impl Client {
 
     /// Sends one request and classifies the outcome: success, retryable
     /// (connect error / 401), or fatal. Doesn't hold the creds lock across
-    /// the network await.
+    /// the network await. `timeout` overrides the client's default
+    /// per-request timeout — pass `DEFAULT_REQUEST_TIMEOUT` for ordinary
+    /// calls, a longer duration for `/wait`, etc.
     async fn send_raw(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<&Value>,
+        timeout: Duration,
     ) -> std::result::Result<reqwest::Response, SendError> {
         let (url, username, password) = {
             let creds = self.creds.read().await;
@@ -240,7 +259,8 @@ impl Client {
         let mut req = self
             .http
             .request(method, url)
-            .basic_auth(&username, Some(&password));
+            .basic_auth(&username, Some(&password))
+            .timeout(timeout);
         if let Some(b) = body {
             req = req.json(b);
         }
@@ -262,8 +282,9 @@ impl Client {
         method: reqwest::Method,
         path: &str,
         body: Option<&Value>,
+        timeout: Duration,
     ) -> std::result::Result<Value, SendError> {
-        let resp = self.send_raw(method, path, body).await?;
+        let resp = self.send_raw(method, path, body, timeout).await?;
         let status = resp.status();
         let text = resp.text().await.map_err(|e| {
             SendError::Fatal(format!("{path}: failed reading response body: {e}").into())
@@ -291,7 +312,23 @@ impl Client {
         path: &str,
         body: Option<Value>,
     ) -> Result<Value> {
-        match self.send_once(method.clone(), path, body.as_ref()).await {
+        self.request_with_timeout(method, path, body, DEFAULT_REQUEST_TIMEOUT)
+            .await
+    }
+
+    /// Same as `request` but with a per-call timeout. Use this when the
+    /// default 30s is wrong — currently only `/wait`, which must block.
+    async fn request_with_timeout(
+        &self,
+        method: reqwest::Method,
+        path: &str,
+        body: Option<Value>,
+        timeout: Duration,
+    ) -> Result<Value> {
+        match self
+            .send_once(method.clone(), path, body.as_ref(), timeout)
+            .await
+        {
             Ok(v) => Ok(v),
             Err(SendError::Fatal(e)) => Err(e),
             Err(SendError::Retryable(reason)) => {
@@ -299,8 +336,10 @@ impl Client {
                 self.repair()
                     .await
                     .map_err(|e| format!("re-pair after {reason} failed: {e}"))?;
-                self.send_once(method, path, body.as_ref()).await.map_err(|e| match e {
-                    SendError::Fatal(e) => e,
+                self.send_once(method, path, body.as_ref(), timeout)
+                    .await
+                    .map_err(|e| match e {
+                        SendError::Fatal(e) => e,
                     SendError::Retryable(reason2) => format!(
                         "opencode server unreachable — re-pair ({path} still {reason2} after re-pairing)"
                     )
@@ -452,7 +491,15 @@ impl Client {
 
     /// Opens the global SSE stream. The caller (sse.rs) owns reading it.
     pub async fn events(&self) -> Result<reqwest::Response> {
-        match self.send_raw(reqwest::Method::GET, "/event", None).await {
+        match self
+            .send_raw(
+                reqwest::Method::GET,
+                "/event",
+                None,
+                DEFAULT_REQUEST_TIMEOUT,
+            )
+            .await
+        {
             Ok(resp) if resp.status().is_success() => Ok(resp),
             Ok(resp) => Err(format!("/event -> {}", resp.status()).into()),
             Err(SendError::Fatal(e)) => Err(e),
@@ -461,7 +508,10 @@ impl Client {
                 self.repair()
                     .await
                     .map_err(|e| format!("re-pair after {reason} failed: {e}"))?;
-                match self.send_raw(reqwest::Method::GET, "/event", None).await {
+                match self
+                    .send_raw(reqwest::Method::GET, "/event", None, DEFAULT_REQUEST_TIMEOUT)
+                    .await
+                {
                     Ok(resp) if resp.status().is_success() => Ok(resp),
                     Ok(resp) => Err(format!("/event -> {}", resp.status()).into()),
                     Err(SendError::Fatal(e)) => Err(e),

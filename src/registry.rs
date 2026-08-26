@@ -96,6 +96,18 @@ impl Registry {
         guard.insert(session_id, tracked);
     }
 
+    /// Removes a tracked session. Used to roll back a registration whose
+    /// `/prompt` failed — see `tools::task`. We don't want to leave the
+    /// SSE consumer watching an "ours" session we never actually drove
+    /// (and potentially fire a CC callback on the orphan's terminal event
+    /// later).
+    pub fn unregister(&self, session_id: &str) {
+        self.sessions
+            .lock()
+            .expect("registry mutex poisoned")
+            .remove(session_id);
+    }
+
     pub fn is_tracked(&self, session_id: &str) -> bool {
         self.sessions
             .lock()
@@ -233,5 +245,77 @@ impl Drop for NotifyClaim<'_> {
             t.notified = false;
             t.notify = true;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Locks the contracts SPEC §7/§8 lean on: outcome parsing (wire
+    //! format boundary), claim idempotency (missed-event safety),
+    //! followup re-arming (per-turn claim reset), and unregister (the
+    //! prompt-failure rollback path).
+    use super::*;
+
+    #[test]
+    fn status_from_outcome_recognises_three_terminal_values() {
+        assert_eq!(
+            Status::from_outcome("succeeded").unwrap(),
+            Status::Succeeded
+        );
+        assert_eq!(Status::from_outcome("failed").unwrap(), Status::Failed);
+        assert_eq!(
+            Status::from_outcome("interrupted").unwrap(),
+            Status::Interrupted
+        );
+    }
+
+    #[test]
+    fn status_from_outcome_rejects_unknown_values() {
+        // SPEC.md §1 enumerates exactly three terminal outcomes. A
+        // new value means the API contract changed underneath us —
+        // reject loudly rather than guess.
+        assert!(Status::from_outcome("pending").is_err());
+        assert!(Status::from_outcome("").is_err());
+        assert!(Status::from_outcome("Succeeded").is_err()); // case-sensitive
+    }
+
+    #[test]
+    fn status_as_str_is_lowercase_wire_format() {
+        assert_eq!(Status::Running.as_str(), "running");
+        assert_eq!(Status::Succeeded.as_str(), "succeeded");
+        assert_eq!(Status::Failed.as_str(), "failed");
+        assert_eq!(Status::Interrupted.as_str(), "interrupted");
+    }
+
+    #[test]
+    fn claim_notification_is_idempotent_per_turn() {
+        // Two claims on the same session for the same turn must yield
+        // exactly one notification (the first) — this is the SSE
+        // missed-event/reconnect safety net (SPEC §7.2).
+        let reg = Registry::new();
+        reg.register("ses_a".into(), "p".into(), None, None, true);
+        assert!(reg.claim_notification("ses_a").is_some());
+        assert!(reg.claim_notification("ses_a").is_none());
+    }
+
+    #[test]
+    fn reset_for_followup_rearms_the_claim() {
+        // After a followup is queued, the next claim must succeed (the
+        // terminal event for the new turn must fire a fresh notify).
+        let reg = Registry::new();
+        reg.register("ses_a".into(), "first".into(), None, None, true);
+        assert!(reg.claim_notification("ses_a").is_some());
+        reg.reset_for_followup("ses_a", "second".into(), true);
+        assert!(reg.claim_notification("ses_a").is_some());
+    }
+
+    #[test]
+    fn unregister_removes_the_entry() {
+        let reg = Registry::new();
+        reg.register("ses_a".into(), "p".into(), None, None, true);
+        assert!(reg.is_tracked("ses_a"));
+        reg.unregister("ses_a");
+        assert!(!reg.is_tracked("ses_a"));
+        assert!(reg.claim_notification("ses_a").is_none());
     }
 }

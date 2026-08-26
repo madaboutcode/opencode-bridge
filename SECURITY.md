@@ -29,10 +29,10 @@ sound like a sandbox boundary when it isn't one:
 - **opencode2 runs with the user's full filesystem permissions.** The bridge
   forwards `directory` to opencode; whatever you tell opencode to touch, it
   touches. The bridge does not sandbox it.
-- **The CC callback channel uses the CC inbox socket.** Anyone who can write
-  to `$CLAUDE_CODE_MESSAGING_SOCKET` can post into the launching CC session.
-  The bridge only writes on opencode's terminal events for sessions it
-  registered itself.
+- **The CC callback channel uses an AF_UNIX inbox socket** (Unix only). Anyone
+  who can write to `$CLAUDE_CODE_MESSAGING_SOCKET` can post into the
+  launching CC session. The bridge only writes on opencode's terminal events
+  for sessions it registered itself.
 - **The bridge never re-authenticates opencode beyond Basic auth** with the
   creds from `opencode2 pair`. If the opencode service is compromised, the
   bridge will faithfully forward whatever it returns. Treat `opencode2 pair`'s
@@ -42,3 +42,5 @@ sound like a sandbox boundary when it isn't one:
   non-loopback opencode service without understanding the implications.
 - **Stderr logs may include session ids and short prompt text.** Don't ship
   stderr to a public log without redacting.
+- **Unix only.** The bridge uses `AF_UNIX` for the callback channel and
+  currently has no Windows transport.

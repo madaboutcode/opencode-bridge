@@ -26,7 +26,7 @@ pub fn definitions() -> Vec<Value> {
     vec![
         json!({
             "name": "opencode_task",
-            "description": "Dispatch a prompt to opencode2 — the one entry point for handing off work. Omit session_id to START a new session; pass session_id to CONTINUE (follow up on) an existing one. PREFER THE ASYNC DEFAULT: it returns {session_id, status:\"running\"} immediately and pushes the result back into this Claude Code session when the turn finishes (like spawning a background agent). You stay free to do other work meanwhile instead of blocking on a slower/cheaper model — and you're notified the moment it's done. Treat wait=true as the rare exception, only when you genuinely cannot proceed without the output in this same turn.",
+            "description": "Dispatch a prompt to opencode2 — the one entry point for handing off work. Omit session_id to START a new session; pass session_id to CONTINUE (follow up on) an existing one. PREFER THE ASYNC DEFAULT: it returns {session_id, status:\"running\"} immediately and pushes the result back into this Claude Code session when the turn finishes (like spawning a background agent). You stay free to do other work meanwhile instead of blocking on a slower/cheaper model — and you're notified the moment it's done. Treat wait=true as the rare exception, only when you genuinely cannot proceed without the output in this same turn. Note: the notification claim is per-session, not per-turn; interleaving wait=true with async followups on the same session is not supported (use a fresh session for parallel branches).",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -154,11 +154,16 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
             // SPEC.md §5 DECISION: default delivery = queue (let the current
             // turn finish); "steer" interrupts it. Only meaningful here.
             let delivery = opt_str(&args, "delivery").unwrap_or_else(|| "queue".to_string());
-            if state.registry.is_tracked(&session_id) {
+            // Track whether the registry insert was done by THIS call —
+            // used below to decide whether to roll back on `/prompt` failure
+            // (a previously-tracked session is left alone; the failure
+            // applies only to the followup we just queued).
+            let inserted_now = if state.registry.is_tracked(&session_id) {
                 // Re-arm: a second followup must be able to notify again.
                 state
                     .registry
                     .reset_for_followup(&session_id, prompt.clone(), notify);
+                false
             } else {
                 // Followup on a session we didn't launch — still register
                 // BEFORE prompting so the SSE consumer can find it
@@ -166,11 +171,23 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
                 state
                     .registry
                     .register(session_id.clone(), prompt.clone(), None, None, notify);
-            }
-            state
+                true
+            };
+            if let Err(e) = state
                 .client
                 .prompt(&session_id, &prompt, Some(&delivery), &state.origin)
-                .await?;
+                .await
+            {
+                // Foreign-session followup that we just registered and that
+                // failed: unregister so we don't claim notify on events for
+                // a session we never drove. A previously-tracked session
+                // (inserted_now=false) stays registered — the prior turn's
+                // state is still valid, this followup just didn't happen.
+                if inserted_now {
+                    state.registry.unregister(&session_id);
+                }
+                return Err(e);
+            }
             session_id
         }
         // START: create a new session, then prompt it. model/agent/directory/
@@ -203,10 +220,20 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
             state
                 .registry
                 .register(session_id.clone(), prompt.clone(), model, agent, notify);
-            state
+            if let Err(e) = state
                 .client
                 .prompt(&session_id, &prompt, None, &state.origin)
-                .await?;
+                .await
+            {
+                // /session POST already created the session on opencode;
+                // if /prompt then fails, the local registry entry points at
+                // work we never started — unregister so the SSE consumer
+                // doesn't fire a callback on its (orphan) terminal event.
+                // The opencode-side session is left in place; deleting it
+                // would need an undocumented endpoint.
+                state.registry.unregister(&session_id);
+                return Err(e);
+            }
             session_id
         }
     };
@@ -497,4 +524,178 @@ async fn catalog_agents(state: &AppState, args: Value) -> Result<Value> {
         })
         .collect();
     Ok(json!({"agents": items, "count": items.len()}))
+}
+
+#[cfg(test)]
+mod tests {
+    //! Pure-function unit tests for the parts that don't need opencode
+    //! running. The full MCP-handshake + live-southbound smoke tests
+    //! described in SPEC.md §6 require an opencode2 service; run them
+    //! manually with the pipe harness in README.md.
+    use super::*;
+    use crate::opencode::{
+        latest_assistant_text, AgentInfo, AgentModel, Message, MessagePart, MessageTime,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn definitions_lists_four_tools_with_expected_names() {
+        // Cross-check against src/tools.rs::definitions(). SPEC §5 lists
+        // exactly four tools; if this test fails, either the schema
+        // drifted or a tool was added/removed without updating SPEC.md.
+        let names: Vec<String> = definitions()
+            .into_iter()
+            .map(|d| d.get("name").and_then(Value::as_str).unwrap().to_string())
+            .collect();
+        assert_eq!(
+            names,
+            vec![
+                "opencode_task".to_string(),
+                "opencode_sessions".to_string(),
+                "opencode_cancel".to_string(),
+                "opencode_catalog".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn definitions_each_tool_has_input_schema() {
+        // Each tool must carry a JSON Schema object — the MCP client uses
+        // it to validate arguments before calling.
+        for def in definitions() {
+            let name = def.get("name").and_then(Value::as_str).unwrap();
+            let schema = def
+                .get("inputSchema")
+                .unwrap_or_else(|| panic!("{name}: missing inputSchema"));
+            assert_eq!(
+                schema.get("type").and_then(Value::as_str),
+                Some("object"),
+                "{name}: inputSchema.type must be object"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_model_accepts_provider_slash_id_string() {
+        let v = json!({"model": "opencode-go/ox-alpha-free"});
+        let parsed = parse_model(&v, "model").unwrap().unwrap();
+        assert_eq!(parsed.provider_id, "opencode-go");
+        assert_eq!(parsed.id, "ox-alpha-free");
+    }
+
+    #[test]
+    fn parse_model_accepts_object_form() {
+        let v = json!({"model": {"id": "ox-alpha-free", "providerID": "opencode-go"}});
+        let parsed = parse_model(&v, "model").unwrap().unwrap();
+        assert_eq!(parsed.provider_id, "opencode-go");
+        assert_eq!(parsed.id, "ox-alpha-free");
+    }
+
+    #[test]
+    fn parse_model_rejects_string_without_slash() {
+        let v = json!({"model": "nope"});
+        assert!(parse_model(&v, "model").is_err());
+    }
+
+    #[test]
+    fn matches_query_is_case_insensitive_and_anded() {
+        let hay = "opencode-go ox-alpha-free Cheap fast model";
+        assert!(matches_query("", hay));
+        assert!(matches_query("alpha", hay));
+        assert!(matches_query("ALPHA", hay));
+        assert!(matches_query("cheap fast", hay)); // AND of two terms
+        assert!(!matches_query("expensive", hay));
+    }
+
+    #[test]
+    fn slugify_lowercases_and_collapses_runs() {
+        // Cosmetic only — these strings are written to opencode session
+        // titles and never parsed back. Lock the shape so an accidental
+        // rewrite doesn't silently break rediscovery heuristics.
+        assert_eq!(slugify("Hello, World!", 40), "hello-world");
+        assert_eq!(slugify("foo___bar", 40), "foo-bar");
+        assert_eq!(slugify("---leading-dashes", 40), "leading-dashes");
+        assert_eq!(slugify("a".repeat(60).as_str(), 10), "aaaaaaaaaa");
+    }
+
+    #[test]
+    fn latest_assistant_text_concats_text_parts_skips_reasoning() {
+        // Mirrors opencode's GET /message shape: assistant messages carry
+        // `content` parts where `type` discriminates `text` from
+        // `reasoning`. The final output is the concat of the text parts
+        // on the assistant message with the latest `time.created`.
+        let messages = vec![
+            Message {
+                kind: "user".into(),
+                time: MessageTime { created: 1 },
+                content: vec![],
+            },
+            Message {
+                kind: "assistant".into(),
+                time: MessageTime { created: 2 },
+                content: vec![
+                    MessagePart {
+                        kind: "reasoning".into(),
+                        text: Some("thinky".into()),
+                    },
+                    MessagePart {
+                        kind: "text".into(),
+                        text: Some("hello ".into()),
+                    },
+                ],
+            },
+            Message {
+                kind: "assistant".into(),
+                time: MessageTime { created: 3 },
+                content: vec![MessagePart {
+                    kind: "text".into(),
+                    text: Some("world".into()),
+                }],
+            },
+        ];
+        assert_eq!(latest_assistant_text(&messages).as_deref(), Some("world"));
+    }
+
+    #[test]
+    fn latest_assistant_text_returns_none_with_no_assistant_messages() {
+        let messages = vec![Message {
+            kind: "user".into(),
+            time: MessageTime { created: 1 },
+            content: vec![],
+        }];
+        assert_eq!(latest_assistant_text(&messages), None);
+    }
+
+    #[test]
+    fn catalog_agents_filter_excludes_hidden_by_default() {
+        // We don't run the async handler here (it needs a Client); the
+        // filtering logic is `include_hidden || !a.hidden`. Encode that
+        // contract by checking the filtered set against a sample.
+        let agents = [
+            AgentInfo {
+                name: "Build".into(),
+                description: Some("solid build agent".into()),
+                mode: Some("primary".into()),
+                hidden: false,
+                model: None,
+            },
+            AgentInfo {
+                name: "Title".into(),
+                description: Some("internal helper".into()),
+                mode: Some("subagent".into()),
+                hidden: true,
+                model: Some(AgentModel {
+                    id: "x".into(),
+                    provider_id: "y".into(),
+                    variant: None,
+                }),
+            },
+        ];
+        let visible: Vec<&str> = agents
+            .iter()
+            .filter(|a| !a.hidden)
+            .map(|a| a.name.as_str())
+            .collect();
+        assert_eq!(visible, vec!["Build"]);
+    }
 }

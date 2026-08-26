@@ -106,8 +106,8 @@ it spawns:
 - `CLAUDE_CODE_MESSAGING_SOCKET` — AF_UNIX path. Empty ⇒ callbacks disabled
   (the bridge degrades gracefully: tasks still complete, you just don't get
   pinged).
-- `CLAUDE_CODE_MESSAGING_TOKEN` — auth token (optional on macOS/Linux;
-  required on Windows).
+- `CLAUDE_CODE_MESSAGING_TOKEN` — optional auth token. Emitted by the
+  client; the bridge writes it as an `auth` frame before the message.
 
 To post a message into the launching client session, connect the AF_UNIX
 stream socket, send newline-delimited JSON frames, then close:
@@ -129,6 +129,9 @@ busy session (e.g. an agent mid-tool-calls), callbacks queue and can
 appear delayed and out of phase with whatever the caller was doing. This is
 inherent to the peer-message inbox channel, not a bug and not lost
 delivery.
+
+**Unix only.** The callback channel is `AF_UNIX`; there is no Windows
+transport.
 
 ---
 
@@ -321,20 +324,34 @@ the gap. Two layers keep this correct:
 
 ## 6. Testing
 
-1. `cargo build` green.
-2. **MCP handshake:** pipe `initialize` + `tools/list` as JSON lines into the
-   binary's stdin, assert the 4 tools come back on stdout. (stdio smoke
-   test, no client needed.)
-3. **Live southbound:** with the opencode2 service up, run a trivial
+1. `cargo build` green. `cargo clippy -- -D warnings` green. `cargo fmt
+   --check` green. `cargo test` green.
+2. **Pure unit tests** (`cargo test`): tool-surface cross-check
+   (`definitions_lists_four_tools_with_expected_names`), `parse_model`
+   string/object validation, `matches_query` semantics, `slugify`
+   shape, `latest_assistant_text` reasoning-vs-text separation,
+   `Status::from_outcome` wire-format boundary, claim idempotency,
+   followup re-arm, unregister rollback. These run in milliseconds
+   and don't need opencode running.
+3. **MCP handshake:** pipe `initialize` + `tools/list` as JSON lines into
+   the binary's stdin, assert the 4 tools come back on stdout. (stdio
+   smoke test, no client needed — the example is in the README.)
+4. **Live southbound:** with the opencode2 service up, run a trivial
    `opencode_task(wait=true)` against a **free** model
    (`opencode-go/ox-alpha-free` has zero balance issues; the default
    `deepseek` key shows "Insufficient Balance" 402) and assert the output
    text.
-4. **End-to-end callback proof:** run the bridge with
+5. **End-to-end callback proof:** run the bridge with
    `CLAUDE_CODE_MESSAGING_SOCKET` set to this Claude Code session's own
    socket, launch an async `opencode_task`, and confirm the completion
    message actually arrives in the session. This is the one test that
    proves the whole point; "tools/list works" does not.
+
+Tests 3, 4, and 5 are manual smoke tests run against a live opencode2
+service. The README documents the exact `echo | opencode-bridge`
+invocations. CI (`.github/workflows/ci.yml`) runs the gates in (1) on
+every push; the smoke tests are documented for maintainers running
+against a real opencode2 locally.
 
 Free model for tests: `{"providerID":"opencode-go","id":"ox-alpha-free"}`.
 
@@ -405,13 +422,16 @@ create sessions and run turns on it. Our global `GET /api/event` stream sees
 ALL of them; a foreign `session.execution.succeeded` is byte-identical to
 ours. Two layers keep us correct:
 
-**Layer 1 — live ownership (primary mechanism).** We mint every session via
-our own `POST /api/session` and record its `ses_...` id in the registry
-BEFORE the first `/prompt`. The SSE consumer and ALL sweeps filter strictly
-on `data.sessionID ∈ registry`. Foreign sessions are never in the registry
-→ their events are dropped. Session ids are globally unique, so there is no
-ambiguity. Sweeps iterate OUR registry and `GET /api/session/{id}` by id —
-they never scan all sessions and never react to a foreign terminal event.
+**Layer 1 — live ownership (primary mechanism).** For sessions we *start*
+ourselves (no `session_id` in the `opencode_task` call), we mint them via
+our own `POST /api/session` and record the id in the registry BEFORE the
+first `/prompt`. For `session_id` followups on a session we did NOT start,
+we still register it locally BEFORE `/prompt` so the SSE consumer can
+attach its notification to the eventual terminal event. The SSE consumer and
+ALL sweeps filter strictly on `data.sessionID ∈ registry`. Session ids are
+globally unique, so there is no ambiguity. Sweeps iterate OUR registry and
+`GET /api/session/{id}` by id — they never scan all sessions and never
+react to a foreign terminal event.
 
 **Layer 2 — durable tag (rediscovery across bridge restart / other client
 sessions).** The in-memory registry dies on restart; `opencode_sessions`'s
@@ -455,7 +475,17 @@ nested turn is complete — it will not lie. The child is a distinct `ses_id`
 with `parentID`=parent; our registry filter drops the child's terminal
 event → no spurious per-subagent notify.
 
-**Accepted limitations** (documented, not engineered around): a human can
-open one of OUR sessions in the TUI and type into it — a foreign turn on a
-session we own. We'd report that turn's last output as ours. Two client
-sessions both sending to one rediscovered session. Same class, low stakes.
+**Accepted limitations** (documented, not engineered around):
+
+- **Concurrent wait+notify on one session.** The notify claim is per-session,
+  not per-turn. Firing a `wait=true` and an async (`wait=false`) followup
+  on the same session in quick succession can race: whichever's terminal
+  event arrives first claims the notify slot; the other path's callback is
+  suppressed. Workaround: don't interleave `wait=true` with async
+  followups on the same session; let each turn finish before queueing the
+  next, or use a fresh session for each parallel branch. The fix is a
+  per-turn generation counter on the claim — filed for a future release.
+- A human can open one of OUR sessions in the TUI and type into it — a
+  foreign turn on a session we own. We'd report that turn's last output as
+  ours. Two client sessions both sending to one rediscovered session. Same
+  class, low stakes.

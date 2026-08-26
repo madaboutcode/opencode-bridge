@@ -94,17 +94,39 @@ async fn handle_request(state: &Arc<AppState>, request: Value) -> Option<Value> 
     let method = request.get("method").and_then(Value::as_str).unwrap_or("");
 
     match method {
-        "initialize" => Some(reply(
-            id,
-            json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": {"tools": {}},
-                "serverInfo": {"name": "opencode-bridge", "version": "0.1.0"}
-            }),
-        )),
-        "notifications/initialized" => None,
-        "tools/list" => Some(reply(id, json!({"tools": tools::definitions()}))),
-        "tools/call" => Some(handle_tools_call(state, id, &request).await),
+        "initialize" => {
+            // MCP negotiation: echo the client's requested protocolVersion
+            // when it advertises one and we recognize it. This is the
+            // spec-correct "we both support it, use it" path. We don't
+            // currently negotiate DOWN — any client requesting a version
+            // we don't recognize gets the default we know works. Future
+            // versions we add support for can be appended to the allowlist
+            // below.
+            let requested = request
+                .pointer("/params/protocolVersion")
+                .and_then(Value::as_str);
+            let negotiated = match requested {
+                Some(v) if is_supported_protocol_version(v) => v.to_string(),
+                _ => DEFAULT_PROTOCOL_VERSION.to_string(),
+            };
+            reply_opt(
+                id,
+                json!({
+                    "protocolVersion": negotiated,
+                    "capabilities": {"tools": {}},
+                    "serverInfo": {"name": "opencode-bridge", "version": "0.1.0"}
+                }),
+            )
+        }
+        "notifications/initialized" => None, // notification — no reply per JSON-RPC 2.0
+        "tools/list" => reply_opt(id, json!({"tools": tools::definitions()})),
+        "tools/call" => {
+            // handle_tools_call owns its id (to embed in the JSON-RPC
+            // reply); reply_opt needs the same id to decide whether to
+            // emit at all (notification-style requests get no reply).
+            let inner = handle_tools_call(state, id.clone(), &request).await;
+            reply_opt(id, inner)
+        }
         "" => {
             eprintln!("[bridge] mcp: request has no method: {request}");
             id.map(|id| error_reply(id, -32600, "Invalid Request"))
@@ -114,6 +136,19 @@ async fn handle_request(state: &Arc<AppState>, request: Value) -> Option<Value> 
             id.map(|id| error_reply(id, -32601, "Method not found"))
         }
     }
+}
+
+/// Protocol versions we can serve. Add to this list as we support newer
+/// MCP revisions. The default below is what we fall back to when a client
+/// requests a version we don't recognize.
+const DEFAULT_PROTOCOL_VERSION: &str = "2024-11-05";
+
+fn is_supported_protocol_version(v: &str) -> bool {
+    // Today: only the version we shipped against. Extend when we add
+    // support for newer MCP revisions — keeping this an explicit allowlist
+    // (rather than "anything") makes a future spec-bump an intentional
+    // decision.
+    v == DEFAULT_PROTOCOL_VERSION
 }
 
 async fn handle_tools_call(state: &Arc<AppState>, id: Option<Value>, request: &Value) -> Value {
@@ -140,6 +175,15 @@ async fn handle_tools_call(state: &Arc<AppState>, id: Option<Value>, request: &V
             json!({"content": [{"type": "text", "text": e.to_string()}], "isError": true}),
         ),
     }
+}
+
+/// Wraps `reply` to also enforce JSON-RPC 2.0's "no response for
+/// notifications" rule. A request with no `id` is a notification and gets
+/// no reply, even if the method is one that would otherwise expect a
+/// response — except `notifications/initialized`, which we never reply to
+/// explicitly.
+fn reply_opt(id: Option<Value>, result: Value) -> Option<Value> {
+    id.map(|id| reply(Some(id), result))
 }
 
 fn reply(id: Option<Value>, result: Value) -> Value {

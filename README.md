@@ -34,6 +34,7 @@ The tool schemas in [`src/tools.rs`](src/tools.rs) are the source of truth for a
 
 ```sh
 cargo build --release
+mkdir -p ~/.local/bin
 install -m 0755 target/release/opencode-bridge ~/.local/bin/opencode-bridge
 ```
 
@@ -50,6 +51,7 @@ Restart Claude Code. The bridge runs as a child of the CC process — no daemon,
 - **Rust** ≥ 1.75 (uses the 2021 edition).
 - **opencode2** installed and the service running. The bridge calls `opencode2 pair` at startup; if the service is down, the bridge exits with a clear stderr message — start it with `opencode2 service start`.
 - The `opencode2` binary location: defaults to `~/.opencode/bin/opencode2`. Override with `OPENCODE2_BIN`.
+- **Unix (macOS or Linux).** The bridge uses `AF_UNIX` for the CC callback channel; there is no Windows transport.
 
 ## Configuration (env vars)
 

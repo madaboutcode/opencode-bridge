@@ -196,7 +196,7 @@ fn cap_notify_text(text: &str, session_id: &str) -> String {
         end -= 1; // don't split a multi-byte UTF-8 char
     }
     format!(
-        "{}… (truncated; call opencode_result(\"{session_id}\") for full output)",
+        "{}… (truncated; call opencode_sessions(session_id=\"{session_id}\") for full output)",
         &text[..end]
     )
 }
