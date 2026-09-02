@@ -1,7 +1,21 @@
 # Dashboard — Overview
 
+## Purpose
+
 What the opencode dashboard is, its scope, and the conventions every sibling
 spec in this tree builds on. Source: `tasks/2026-09-01-opencode-dashboard.requirements.md`.
+
+## Contents
+
+- [File map](#file-map) — which R-numbers live in which sibling file
+- [Scope](#scope) — R1-R2
+- [Data & active window](#data--active-window) — R3-R3.2
+- [Real usage scale](#real-usage-scale) — R5.8
+- [Non-goals (V1)](#non-goals-v1) — R10
+
+Sibling spec files: [`client.md`](client.md), [`layout.md`](layout.md),
+[`visuals.md`](visuals.md), [`interactions.md`](interactions.md) — see the
+File map table below for what each one covers.
 
 ## File map
 
@@ -70,8 +84,8 @@ pointers below for detail this file doesn't carry.
 - **R2** — The dashboard follows standard terminal-app engineering practice:
   it takes over the full terminal screen while running and always restores
   the terminal (cursor, screen mode) on exit, even if it crashes; it reacts
-  to terminal resize; and it responds to keyboard input promptly without
-  busy-waiting the CPU.
+  to terminal resize; and it responds to keyboard input within about 250ms
+  without busy-waiting the CPU.
 
   Scenario: Given the dashboard is running full-screen, when the process
   exits normally, is killed, or panics, then the terminal is left in the

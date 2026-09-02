@@ -1,13 +1,31 @@
 # Dashboard — Interactions
 
+## Purpose
+
 Keyboard navigation, zoom, and the active-window controls — everything the
 user does with their hands once the dashboard is running. Source:
 `tasks/2026-09-01-opencode-dashboard.requirements.md`, section 5
 ("Interactions"), R7-R8.1.
 
-There is no mouse support in V1 (`overview.md` R10, forward reference) —
-every screen and control in this file is reachable and fully operable from
-the keyboard alone.
+## Contents
+
+- [At-a-glance view and navigation](#at-a-glance-view-and-navigation) — R7-R7.1
+- [Window controls](#window-controls) — R8-R8.1
+
+No child spec files — this is a leaf file in the tree; see `overview.md`
+for the full five-file map.
+
+## Scope
+
+Covered: the at-a-glance main screen and its keyboard controls — navigate,
+zoom, back/quit, help, and the footer (R7-R7.1) — and the six active-window
+keys plus the fixed-defaults/no-rebinding rule (R8-R8.1).
+
+Not covered: there is no mouse support in V1 (`overview.md` R10) — every
+screen and control in this file is reachable and fully operable from the
+keyboard alone. The content of the empty-state panel and the trace-view's
+layout are `layout.md`'s and `client.md`'s domains respectively; this file
+only specifies the keys and the footer text.
 
 ## At-a-glance view and navigation
 
@@ -17,8 +35,7 @@ the keyboard alone.
 
   The original requirement text names four states — running, waiting,
   needs-reply, idle — written before the attention model was finalized.
-  `visuals.md` R6.7 (CONFIRMED FINAL, 2026-09-02; forward reference, not yet
-  written) settled on three: `running`, `needs-you` (which carries a
+  `visuals.md` R6.7 (CONFIRMED FINAL, 2026-09-02) settled on three: `running`, `needs-you` (which carries a
   distinct "question" sub-badge — what the original wording called
   "needs-reply"), and `idle`. This file uses R6.7's three-state vocabulary;
   "waiting"/"needs-reply" from the original text are not a fourth state.
@@ -105,8 +122,7 @@ the keyboard alone.
 
     This footer is distinct from the empty-state panel shown in the body
     when zero sessions are active — that panel's exact copy is specified in
-    `layout.md` R9 (forward reference, not yet written); this file does not
-    repeat it.
+    `layout.md` R9; this file does not repeat it.
 
     [REVIEW: the source specifies the `window: W (...)` pattern exactly but
     not the wording of the "hints" reminder. Exact hint text is left to
@@ -134,11 +150,13 @@ the keyboard alone.
   | `Shift+[` | `W -= 1m` (fine-tune) |
 
   `W` is clamped to 1-60 minutes: `[`/`Shift+[` never take it below 1m, and
-  `]`/`Shift+]` never take it above 60m — reaching "show all" only happens
-  via the dedicated `a` key, never by raising `]` past 60. Every one of
-  these keys triggers an immediate layout recompute (`layout.md` R5.4,
-  forward reference) with no animation and no debounce — the new layout
-  appears on the very next drawn frame.
+  `]`/`Shift+]` never take it above 60m. [REVIEW: the source doesn't say
+  whether `]`/`Shift+]` past 60m should clamp at 60m or auto-transition into
+  "show all". This file picks clamp-at-60 — reaching "show all" only
+  happens via the dedicated `a` key, never by raising `]` past 60 — until
+  decided otherwise.] Every one of these keys triggers an immediate layout
+  recompute (`layout.md` R5.4, forward reference) with no animation and no
+  debounce — the new layout appears on the very next drawn frame.
 
   [REVIEW: carried forward from the requirements doc's Open Questions —
   the overflow behavior when `a` (show all) is active with many (50+)

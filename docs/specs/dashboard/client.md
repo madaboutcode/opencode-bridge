@@ -1,5 +1,7 @@
 # Dashboard — Client / Harness-Adapter Contract
 
+## Purpose
+
 The full data contract between the dashboard's core (session tracking,
 layout, rendering) and whatever is watching a coding-agent tool ("harness")
 on the core's behalf. `overview.md` R1.3 only establishes that this boundary
@@ -16,6 +18,36 @@ boundary and delivery contract those fields travel over.
 
 Source: `tasks/2026-09-01-opencode-dashboard.requirements.md`, R1.3 (full),
 R1.4–R1.8, R4, R6.4–R6.6.
+
+## Contents
+
+- [Harness-adapter boundary](#harness-adapter-boundary) — R1.3 (full)
+- [Session snapshot model](#session-snapshot-model) — R1.4
+- [Session identity](#session-identity) — R1.5
+- [Project identity](#project-identity) — R1.6
+- [Staleness](#staleness) — R1.7
+- [Harness-tag slot](#harness-tag-slot) — R1.8
+- [The opencode adapter's own mechanism](#the-opencode-adapters-own-mechanism) — R4
+- [Tool-call correlation (opencode adapter internals)](#tool-call-correlation-opencode-adapter-internals) — R6.4
+- [Action-line rendering (opencode adapter internals)](#action-line-rendering-opencode-adapter-internals) — R6.5-R6.6
+- [Known implementation gap: adapter's session-metadata source](#known-implementation-gap-adapters-session-metadata-source)
+
+No child spec files — this is a leaf file in the tree; see `overview.md`
+for the full five-file map.
+
+## Scope
+
+Covered: the `HarnessAdapter` boundary contract (R1.3 full), the session
+snapshot delivery model (R1.4), session identity (R1.5), project identity
+(R1.6), staleness (R1.7), the harness-tag slot (R1.8), and — specific to the
+one adapter that ships in V1 — the opencode adapter's REST/SSE mechanics
+(R4) and its tool-call-to-action-line rendering (R6.4-R6.6).
+
+Not covered: the exact rendered content of a session snapshot (status
+vocabulary, tile text, nickname rules) — those live in `visuals.md` and
+`layout.md` per `docs/specs/CLAUDE.md`'s File organization table; this file
+owns the boundary and delivery contract those fields travel over, not their
+final on-screen form.
 
 ## Harness-adapter boundary
 
@@ -62,8 +94,8 @@ R1.4–R1.8, R4, R6.4–R6.6.
   core stores only the latest snapshot per key, bucketed by project (R1.6),
   and recomputes layout every frame from current snapshots — it never patches
   a snapshot incrementally or holds derived state between frames (consistent
-  with `overview.md`'s "no caching, no stability logic" behaviour, R5.4/R5.7
-  in `layout.md`). Exact snapshot field contents (title, status, current
+  with `layout.md`'s "no caching, no stability logic" behaviour, R5.4/R5.7).
+  Exact snapshot field contents (title, status, current
   action text, etc.) are specified where they're rendered — `visuals.md`
   R6.3/R6.7/R6.8, `layout.md` R5.2/R5.3 — this file only specifies the
   delivery model: whole-state upserts or tombstones, one channel, no
@@ -156,7 +188,7 @@ R1.4–R1.8, R4, R6.4–R6.6.
     directory, the child lands in the same project box as its parent
     automatically — no special-casing is needed at this layer (subagents are
     still handled specially at the session-identity/rendering layer, per
-    R1.5 and `layout.md`'s R5.1, just not here).
+    R1.5 and `layout.md`'s R5.1/R5.6, just not here).
 
   Scenario: Given two sessions — one with a working directory at a git
   repository's root, another with a working directory in a subfolder of that

@@ -1,10 +1,35 @@
 # Dashboard — Visuals
 
+## Purpose
+
 What a session card shows, the three-state attention model, the still-open
 question of chrome (borders vs. color), and the project/session naming
 scheme. Source: `tasks/2026-09-01-opencode-dashboard.requirements.md`,
 section 4 ("Visuals"), R6-R6.8, plus its Appendix (word lists) and three
 Open Questions items carried forward below as `[REVIEW: ...]`.
+
+## Contents
+
+- [Look and chrome](#look-and-chrome) — R6, R6.1, R6.2
+- [Card content](#card-content) — R6.3
+- [Attention model](#attention-model) — R6.7
+- [Session and project naming](#session-and-project-naming) — R6.8
+- [Appendix — R6.8 word lists](#appendix--r68-word-lists-frozen-2026-09-02)
+
+No child spec files — this is a leaf file in the tree; see `overview.md`
+for the full five-file map.
+
+## Scope
+
+Covered: TUI chrome and color palette (R6), whether/where borders appear
+(R6.2, still open), the fixed 3-line card content (R6.3), the
+running/needs-you/idle attention model including the question sub-badge
+(R6.7), and the project/session naming and word-claim scheme (R6.8).
+
+Not covered: geometry, tile sizing, and packing are `layout.md`'s domain
+(R5-R5.11) — this file cross-references tile-size-dependent rules by name
+but doesn't redefine them. The exact text produced for a session's current
+action is `client.md`'s domain (R6.5).
 
 ## Look and chrome
 
@@ -93,6 +118,12 @@ Open Questions items carried forward below as `[REVIEW: ...]`.
 
   No 4th line (cost/tokens were considered and cut — see `overview.md` R10,
   forward reference, for the related non-goal).
+
+  [REVIEW: this fixed "exactly 3 lines" is in tension with `layout.md`
+  R5.3, which defines tile content as a continuous scaling regime (from
+  color-only, up through compact, up through an "extended" multi-line
+  form) rather than a fixed line count. Not reconciled here — flagging for
+  whoever settles which rule governs card content at larger tile sizes.]
 
   Scenario: Given a session named "Apollo" with wire title "fix flaky
   test", status `running` for 2 minutes, and its last tool call editing

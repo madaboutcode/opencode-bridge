@@ -8,18 +8,18 @@ directory first — it defines the format and the skill gate.
 - **`dashboard/overview.md`** — what the system is, its two-crate scope, the
   harness-agnostic core boundary (summary), the active/idle time window, real
   usage scale, and V1 non-goals. Start here.
-- **`dashboard/client.md`** *(not yet written — T03)* — the `HarnessAdapter`
-  boundary in full, session snapshots, session identity, project identity,
-  staleness, multi-harness tagging, the opencode adapter's REST/SSE mechanics,
-  and tool-call-to-action-line rendering.
-- **`dashboard/layout.md`** *(not yet written — T04)* — the area-proportional
-  "Mosaic" layout: project/session weighting, squarify packing, tile content
-  scaling, minimum sizes, and degrade/empty/too-small states.
-- **`dashboard/visuals.md`** *(not yet written — T05)* — look and feel: TUI
-  chrome, card content lines, the running/needs-you/idle attention model, and
-  the session/project naming scheme.
-- **`dashboard/interactions.md`** *(not yet written — T06)* — keyboard
-  navigation, zoom, and the active-window controls.
+- **`dashboard/client.md`** — the `HarnessAdapter` boundary in full, session
+  snapshots, session identity, project identity, staleness, multi-harness
+  tagging, the opencode adapter's REST/SSE mechanics, and
+  tool-call-to-action-line rendering.
+- **`dashboard/layout.md`** — the area-proportional "Mosaic" layout:
+  project/session weighting, squarify packing, tile content scaling, minimum
+  sizes, and degrade/empty/too-small states.
+- **`dashboard/visuals.md`** — look and feel: TUI chrome, card content
+  lines, the running/needs-you/idle attention model, and the session/project
+  naming scheme.
+- **`dashboard/interactions.md`** — keyboard navigation, zoom, and the
+  active-window controls.
 
 ## File map (which R-numbers live where)
 

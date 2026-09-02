@@ -1,5 +1,7 @@
 # Dashboard — Layout ("Mosaic")
 
+## Purpose
+
 The area-proportional "Mosaic" layout: how project regions and session tiles
 are packed and sized on screen, how tile content scales with the space it's
 given, and what the dashboard shows when there's nothing to show or not
@@ -9,12 +11,30 @@ R5.3) `tmp/20260901-prototype-dashboard-layout/BRIEF-v2.md`. This section of
 the requirements doc is CONFIRMED — verified against a real ratatui build,
 not a mockup (render evidence in that spike's `renders/` directory).
 
-This file covers geometry and content-scaling rules only. Exact colors,
-glyphs, and the attention-state model (`running`/`needs-you`/`idle`) are
-`visuals.md`'s domain (R6, R6.7) — this file cross-references them by name
-where a rule depends on state, but doesn't redefine them. Session-snapshot
-data (what fields exist, how "current action" text is produced) is
-`client.md`'s domain (R1.4, R6.4-R6.6).
+## Contents
+
+- [Layout algorithm](#layout-algorithm) — R5-R5.11
+- [Degrade and edge states](#degrade-and-edge-states) — R9-R9.2
+
+No child spec files — this is a leaf file in the tree; see `overview.md`
+for the full five-file map.
+
+## Scope
+
+Covered: the two-pass squarify packing (project regions, then session tiles
+within a region — R5-R5.2), tile content scaling as a function of tile size
+(R5.3), resize/recompute behavior (R5.4), minimum sizes (R5.5), the
+per-project tile cap and overflow (R5.6), position (in)stability (R5.7),
+real-usage-scale consequences (R5.8), accent-color placement (R5.11), and
+the degrade/empty/too-small states (R9-R9.2).
+
+Not covered: this file covers geometry and content-scaling rules only.
+Exact colors, glyphs, and the attention-state model
+(`running`/`needs-you`/`idle`) are `visuals.md`'s domain (R6, R6.7) — this
+file cross-references them by name where a rule depends on state, but
+doesn't redefine them. Session-snapshot data (what fields exist, how
+"current action" text is produced) is `client.md`'s domain (R1.4,
+R6.4-R6.6).
 
 ## Layout algorithm
 
@@ -125,8 +145,7 @@ data (what fields exist, how "current action" text is produced) is
 
   Elapsed time is measured differently per state: needs-you counts since the
   turn ended; running counts since the current turn started; idle counts
-  since the session's last update (see `client.md` for exactly which
-  session-snapshot fields these come from). If the session has subagents
+  since the session's last update. If the session has subagents
   and there isn't room for dedicated subagent lines,
   the status line instead gets a suffix ` ↳N` (subagent count) whenever at
   least 4 cells remain on that line.
@@ -341,14 +360,14 @@ data (what fields exist, how "current action" text is produced) is
 
 ## Degrade and edge states
 
-- **R9** — When zero sessions are active within the current window (R3), the
-  dashboard shows a centered empty-state panel instead of tiling idle
-  sessions into tiny boxes: `No sessions updated in last Xm — N older
-  sessions hidden — press ] or a` (`X` = the current window in minutes, `N`
-  = count of idle sessions that exist but aren't shown). Idle sessions
-  continue to appear only as context inside a project that has at least one
-  active session (R3.2) — this panel is what's shown when no project
-  qualifies for that at all.
+- **R9** — When zero sessions are active within the current window
+  (`overview.md` R3), the dashboard shows a centered empty-state panel
+  instead of tiling idle sessions into tiny boxes: `No sessions updated in
+  last Xm — N older sessions hidden — press ] or a` (`X` = the current
+  window in minutes, `N` = count of idle sessions that exist but aren't
+  shown). Idle sessions continue to appear only as context inside a project
+  that has at least one active session (`overview.md` R3.2) — this panel is
+  what's shown when no project qualifies for that at all.
 
   Scenario: Given the active window is 10 minutes and every existing
   session was last updated 25 minutes ago, when the dashboard renders, then
