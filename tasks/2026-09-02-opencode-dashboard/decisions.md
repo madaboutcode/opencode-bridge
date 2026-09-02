@@ -407,5 +407,42 @@ Reversal: if T12's implementer finds a reason subagent claiming can't share
 the same call path as top-level claiming (e.g. a churn-rate difference that
 defeats T10's cooldown assumptions), that's a new finding to report, not
 something to silently drop back to the id fallback.
-Sign-off: advisor confirmation of the Review Frame at contract version 3
-pending; not spawning T12's runner until confirmed.
+Sign-off: advisor confirmed the Review Frame at contract version 3; T12's
+runner spawned and gated at `2c00bdd`.
+
+## 2026-09-02 — M3 milestone signed off; run complete
+
+Considered: whether M3's five gated tasks (T08-T12), checked by a
+fresh-eyes fit reviewer against the seams named in the M3 decomposition,
+actually fit together as PLAN.md intended — and whether, once signed off,
+any further M-numbered work remains in this run.
+Chosen: signed off. Fit holds — every inter-task seam traced against real
+code, not gate-report claims; all three cross-task fixes made during
+execution (T09→T12 tombstone-release wiring, T11→T12 subagent claim
+wiring, T09→T12 R3 reclassification) confirmed genuinely built; no
+duplicated responsibility; no deferred item needed promotion. PLAN.md names
+exactly three milestones (M1, M2, M3), all now signed off — no further
+milestone to decompose.
+Why: the fit reviewer had no prior involvement in any of T09-T12 (required
+by the milestone stage) and read the actual code at every seam named in
+PLAN.md's M3 decomposition entry, not just the gate reports' summaries.
+Advisor's own review concurred and added two forward-looking (not
+blocking) notes: the SIGTERM deferral should be among the first items
+addressed post-v1 since a supervised/scripted launch is a foreseeable next
+step, and the `NamingClaimMap` `Default` footgun is a one-line fix worth
+doing in any cleanup pass.
+Limitations: T12's AC8 manual smoke test was recorded but not executed
+end-to-end on a real terminal (the implementer's sandbox had no TTY) — the
+connect/pairing half was exercised live and worked; the interactive half
+(keys, live rendering, terminal restore against a real opencode server)
+still needs a human on a real terminal. Both conductor and advisor agree
+this doesn't block sign-off (AC8's literal text only requires the
+instruction be recorded) but it is a real pre-ship gap, not a formality.
+Reversal: if the manual smoke test surfaces a real defect, that reopens
+work against whichever task's boundary the defect falls in — not a reason
+to reopen this sign-off retroactively, since the milestone gate was never
+meant to substitute for that test.
+Sign-off: advisor, unconditional. Run status: Done. Remaining obligations
+are the user's manual smoke test, the 14-item `deferred.md` backlog as
+future maintenance (not delivery), and the merge/PR decision, which this
+run's git policy leaves entirely to the user.

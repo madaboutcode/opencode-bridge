@@ -215,3 +215,24 @@ or implementer actually found and judged real.
   by PID/signal rather than Ctrl-C. Promotion: add a signal handler (e.g.
   via `signal_hook` or raw `libc`) that runs the same restore path as the
   panic guard, then add a test exercising it.
+
+## M3 milestone review — fresh-eyes fit finding
+
+- **`NamingClaimMap`'s `#[derive(Default)]` (T10, `naming/claim_map.rs:177`)
+  is misleading** — the derived default gives `categories: vec![]`, which
+  panics on first claim via `preferred_index`'s `debug_assert!(len > 0)`.
+  No real code path reaches it: the only construction path is
+  `LiveState::new()` -> `NamingClaimMap::new()` (T12, `shell/live.rs:34-38`),
+  which correctly populates categories from the frozen wordlist, and
+  `live.rs`'s doc comment (lines 26-33) already flags the footgun and
+  explains why `new()` is used instead of `Default::default()`. Found by
+  the M3 fit reviewer (fresh-eyes, not a task-internal reviewer). Assumption:
+  every real construction site continues to go through `new()`, as
+  documented. Consequence if wrong: a future caller that reaches for
+  `Default::default()` instead of `new()` (a natural Rust idiom, and the
+  derive makes it compile silently) gets an instant panic on first claim
+  attempt, not a compile error. Trigger: any new code path constructing
+  `NamingClaimMap` — remove the `#[derive(Default)]` (or make it produce a
+  real single default category set) so a wrong construction fails to
+  compile or degrades instead of panicking, rather than waiting for a
+  second construction site to appear and hit it.
