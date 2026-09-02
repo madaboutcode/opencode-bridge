@@ -1,0 +1,9 @@
+<!-- gates/T04-report.md. Written by the task's runner; it is the conductor's entire
+     gate and must stand alone. -->
+
+# T04 — gate report
+
+**Conformance:** yes — reviewer's explicit verdict against the contract's acceptance criteria: `layout.md` covers R5-R5.11 and R9-R9.2 with original numbering preserved, includes the pulled-in tile-content regime table in full (not just a citation), every requirement has a co-located scenario (R5.9/R5.10 are folded provenance entries and redirect to their parent's scenario with an explanation, judged acceptable), both OPEN items are marked `[REVIEW: ...]` (R5.5 min sizes, R5.6's `a`-mode overflow policy), and the file is self-contained enough for an M3 implementer to build from without re-reading the requirements doc or the prototype's brief. Reviewer spot-checked R5.1, R5.2, R5.7 (the retracted positional-stability decision, stated plainly per the contract's explicit instruction not to soften it), R5.8, R5.11, and R9.2 word-for-word against the requirements doc — all faithful.
+**Passes:**
+- Pass 1 — reviewer found no issues above the depth line. It logged six low-severity observations, all resolved on inspection as correct author judgment, not defects: (1) the regime table's `wi 6-11, h≥5` cell correctly matches the brief; (2) the elastic recent-actions list's brighten-the-last-2-entries rule correctly translates the brief's hex color into spec-appropriate language, since exact colors are `visuals.md`'s domain; (3) the Question-block drop order matches the brief exactly; (4) R5.9/R5.10's scenario redirects are an acceptable way to handle folded/provenance-only entries; (5) BRIEF-v2.md's spike-only "tool-call count" status-line addition was correctly left out since it was never promoted into the requirements doc; (6) R9's cross-references to R3 and `interactions.md` R8 are correct use of cross-file referencing rather than redefinition. No fixes needed — no pass 2 run.
+**Residuals:** none.
