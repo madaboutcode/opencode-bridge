@@ -99,6 +99,35 @@ or implementer actually found and judged real.
   existing 50+ session deferral — the user reports missing/incomplete
   session lists, or routinely runs enough sessions to plausibly exceed one
   page.
+## T10 — Naming and claim-map (R6.8)
+
+- `crates/dashboard/src/naming/claim_map.rs:377`'s `release_session` has an
+  `.unwrap_or(0)` on a lookup that should always succeed once
+  `session_location` has an entry for the session (the method returns early
+  otherwise). Found by the reviewer (`ask_opus`), self-dispositioned by the
+  reviewer as style, not correctness — the fallback triggers the same
+  cleanup path `remaining == 0` would, so an impossible state self-heals
+  instead of panicking. Per `code-quality`'s `FALLBACK-OK:` convention this
+  should carry a citation or become an `expect(...)`. Assumption: the
+  invariant (a tracked session's project is always in
+  `project_live_sessions`) genuinely never breaks given the module's own
+  bookkeeping. Consequence if wrong: silent no-op instead of a loud failure
+  in a state that should be provably impossible. Trigger: next time this
+  file is touched for another reason, or if the invariant is ever suspected
+  broken (e.g. a project's live-session count looks wrong after a release).
+- The delivery profile's existing R6.8 capacity-edge-case deferral (more
+  live projects than categories, or more live sessions than a category has
+  words) assumed the consequence would be "a duplicate name, i.e. the
+  guarantee silently fails." T10's actual implementation degrades instead of
+  silently duplicating: category overflow sets a project's assignment to
+  `shared: true` (word-claims stay category-scoped, so the per-project
+  guarantee still holds even when shared); word overflow appends a numeric
+  suffix (`"Apollo-2"`) with the smallest unused suffix, so per-project
+  uniqueness holds even past a category's word count. The profile's original
+  trigger ("either count approaching its list length") still stands — this
+  note is so whoever hits that trigger knows the actual behavior to expect
+  (a shared category or a suffixed name) rather than a raw duplicate.
+
 - `AttentionState::Running`'s `turn_started` timestamp is set from the
   adapter's own observation of `session.execution.started` over SSE; when
   the reconcile sweep is what first discovers a running session (e.g. the
