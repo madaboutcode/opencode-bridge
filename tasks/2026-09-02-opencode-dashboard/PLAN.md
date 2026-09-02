@@ -104,7 +104,28 @@ artifacts, then implements the dashboard once specs exist. Concrete, in order:
   directly — merge/PR is a decision for the user at the end of the run, not
   something this run does on its own authority.
 
+## M2 ground truth (spec-writing conventions, shared by T02-T07)
+
+- Skill: `writing-specs` (`~/.claude/skills/writing-specs/SKILL.md`). This repo has no `docs/specs/` tree yet — T02 bootstraps `docs/specs/CLAUDE.md` (format/convention doc) and `docs/specs/README.md` (index). `docs/specs/glossary.md` and `docs/specs/interfaces/` are the skill's two "fixed locations," but both exist specifically to serve the `greybeard`/QA multi-agent process, which this run isn't using — skipped for V1 as a deliberate simplification, not an oversight. Logged in `decisions.md`.
+- Mandatory validation: writing-specs requires a separate `clerk` agent to run `~/.claude/skills/writing-specs/references/validation-rubric.md` against each spec file after writing. T07 owns this, after all five content files exist.
+- File map (decomposition adjustment from PLAN's original 4-file sketch, made now that the full requirements doc is CONFIRMED and in hand): the R6 series (card content, attention states, chrome, nickname scheme) is substantial enough on its own — projected well past the skill's ~80-100 line split threshold once expanded with scenarios — to warrant its own file, `visuals.md`, rather than folding into `layout.md`. Five spec files, not four:
+  - `overview.md` — R1, R1.1, R1.2, R1.3 (summary only, full contract lives in client.md), R2, R3-R3.2, R5.8, R10.
+  - `client.md` — R1.3 (full), R1.4, R1.5, R1.6, R1.7, R1.8, R4, R6.4, R6.5, R6.6.
+  - `layout.md` — R5-R5.11, R9-R9.2 (empty/too-small/degrade states — grouped here since they're layout's edge-case output, not a separate concern).
+  - `visuals.md` — R6, R6.1, R6.2, R6.3, R6.7, R6.8 (+ the R6.8 wordlist appendix, copied from the requirements doc).
+  - `interactions.md` — R7-R7.1, R8-R8.1.
+- Every spec file: co-locate one Given/When/Then scenario per requirement (writing-specs convention), cross-link siblings by relative path + R-number where behavior depends on another file (e.g. visuals.md's R6.3 line-3 content depends on client.md's R6.5 mapping), carry forward OPEN items from the requirements doc as `[REVIEW: ...]` markers rather than silently resolving them.
+- Context line for every T02-T07 contract: who uses it = future M3 implementers (and the coordinator) as the source of truth for building the dashboard crate; scale = 5-6 files, single project, no multi-team consumers; criticality = moderate — a wrong spec means M3 builds the wrong thing, but a human (the user) reviews before anything ships, this isn't unattended production. This keeps reviewers focused on faithfulness-to-requirements-doc and internal consistency, not edge-case pedantry — same calibration approach as T01, restated for spec-writing instead of code.
+
 ## Decomposition (stubbed — filled in per milestone)
 
 ### M1 — project-identity spike
 - T01: build + run the spike, produce the evidence report. (see `contracts/T01-project-identity-spike.md` once written)
+
+### M2 — spec tree
+- T02: bootstrap `docs/specs/CLAUDE.md` + `docs/specs/README.md`, write `overview.md`. (pipeline — gates before T03-T06 start, since they must read T02's conventions doc first)
+- T03: write `client.md`. (fans out with T04-T06, depends on T02)
+- T04: write `layout.md`. (fans out with T03/T05/T06, depends on T02)
+- T05: write `visuals.md`. (fans out with T03/T04/T06, depends on T02)
+- T06: write `interactions.md`. (fans out with T03/T04/T05, depends on T02)
+- T07: cross-link pass across all five files + update `README.md` index + spawn the mandatory `writing-specs` validation agent per file, fix what it flags. (depends on T02-T06 all gated)
