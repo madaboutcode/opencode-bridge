@@ -21,6 +21,17 @@
 
 **Contested:** none.
 
+## Post-commit correction
+
+Pass 2's completion notification was misdelivered to the top-level coordinator's session rather than to this runner's — a notification-routing bug affecting a nested Agent-tool subagent's completion, the same class of misrouting the earlier opencode-dispatch trial surfaced. It was not lost, and the reviewer did not fail to complete. Verbatim result, relayed by the coordinator from its own session:
+
+> 1. The fmt fix landed correctly -- three purely mechanical formatting changes in log.rs (2 spots) and tools.rs (1 spot), exactly matching the pre-existing violations I flagged in pass 1. No other files touched.
+> 2. Fresh scan found nothing new. All acceptance criteria now pass cleanly: build, 29 tests, clippy, fmt, no TUI/MCP deps in the client crate, release binary path intact, CI updated, dashboard skeleton runs, nothing outside the owns-list modified.
+> 3. Finding 2 (stale comments in opencode-client/src/opencode.rs referencing bridge internals like tools.rs and registry::Registry::claim_notification) remains as a deferred informational item -- the file is a byte-for-byte identical move, and editing comments would violate the contract's rule about keeping moved files unchanged in the migration diff.
+> Final conformance verdict: Yes.
+
+This matches the pass-2 account already recorded in the Passes section above (updated in `aa87c2f`). Because the cause was notification routing, not a transport failure, this report does not carry a "SendMessage-resume reliability" flag as a trial-viability concern — the resume mechanism itself worked; delivery of its result to the correct session did not. The routing bug itself is logged at the run level in `decisions.md` by the conductor, not as T08-substance.
+
 **Deferred:** appended to `deferred.md` — the stale bridge-internal comments in `crates/opencode-client/src/opencode.rs` (pass-1 finding 2, informational).
 
 ## Independent findings, not from either agent
