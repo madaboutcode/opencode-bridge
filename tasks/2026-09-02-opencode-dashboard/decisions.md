@@ -357,4 +357,55 @@ sealing — T09 (v2): named a dedicated last-updated timestamp field for
 R3's window filter, distinct from the per-state elapsed-time basis. T12
 (v2): added AC 9, tombstone-to-claim-release wiring (T09's tombstone →
 T10's release), the one place those two signals meet at runtime. Both
-fixes applied; advisor confirming Review Frames hold at v2.
+fixes applied; advisor confirmed Review Frames hold at v2.
+
+## 2026-09-02 — Nested-subagent completion misrouting recurred a third time
+
+Considered: whether the prior reversal trigger ("revisit if this recurs a
+third time") on the T08 misrouting entry above has now fired.
+Chosen: yes — `runner-t11`'s implementer completion landed in the
+conductor's top-level session instead of `runner-t11`'s, the same shape as
+both T08 occurrences (one MCP-dispatch callback, one Agent-tool
+`SendMessage`-resume), now a third time via a fresh Agent-tool subagent
+spawn (not a resume). Relayed verbatim to `runner-t11` without alteration,
+same as the T08 correction — no review or disposition happened in the
+conductor's session, the content was just forwarded to its rightful owner.
+Why: per the T08 entry's own Reversal clause, three occurrences means this
+is a property of the harness, not a one-off worth absorbing silently each
+time. Filed as harness feedback (not fixable inside this run).
+Limitations: still only ever misroutes to the top-level session, never
+elsewhere; still no fix available inside a conductor run — the mitigation
+remains "the runner pings the conductor if a wait looks anomalously long,"
+which held again here (the conductor received and relayed the output
+before `runner-t11` needed to ask).
+Reversal: none further needed inside this run — this is now tracked as
+external harness feedback, not a per-run decision to keep revisiting.
+
+## 2026-09-02 — T11 gated; subagent-nickname gap resolved into T12's contract
+
+Considered: T11 gated clean at `4cb8a3a`, but surfaced a real cross-task gap
+— neither T10's contract nor `visuals.md` R6.8 says who claims a subagent
+session's name, so T11's render layer falls back to the subagent's raw
+harness-native id whenever T10 was never asked to claim one. Options: leave
+the fallback as v1's answer (defer with trigger), or make T12's live-
+session loop claim names for subagents too.
+Chosen: the latter — T12 (contract version 3) now requires claiming (and
+releasing) names for every live session it discovers, subagent or not, not
+just top-level ones.
+Why: subagent sessions are ordinary sessions under `client.md` R1.5's
+identity model (harness kind + native id, same tuple as any session), and
+`layout.md` R5.6 already specifies they render with a claimed `↳ nick
+action` line — the spec's own vocabulary assumes a real nickname exists,
+not a raw id. T11's fallback is sound defense-in-depth regardless (a
+session that somehow never got claimed still renders something readable),
+but the actual v1 behavior should be the real claimed name, achievable at
+essentially no extra cost once T12's loop already iterates live sessions
+for the tombstone-release wiring (T09/T12, logged above).
+Limitations: none identified — this doesn't touch T09's or T10's owns-list,
+only what T12 (not yet built) calls.
+Reversal: if T12's implementer finds a reason subagent claiming can't share
+the same call path as top-level claiming (e.g. a churn-rate difference that
+defeats T10's cooldown assumptions), that's a new finding to report, not
+something to silently drop back to the id fallback.
+Sign-off: advisor confirmation of the Review Frame at contract version 3
+pending; not spawning T12's runner until confirmed.

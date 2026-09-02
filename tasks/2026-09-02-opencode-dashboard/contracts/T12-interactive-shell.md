@@ -1,8 +1,9 @@
 # T12 — Interactive shell: main loop, window controls, keyboard nav
 
-**Contract version** — 2 (advisor decomposition-review fix: added AC 9,
-tombstone-to-claim-release wiring — this task is the only place T09's
-tombstone and T10's release function meet at runtime)
+**Contract version** — 3 (conductor fix, from T11's gate: AC 9 now names
+subagent sessions explicitly — T11 surfaced that nothing assigned
+responsibility for claiming their names, and this task's live-session loop
+is where that responsibility belongs)
 
 **Context** — goal: wire T09 (data), T10 (naming), and T11 (render) into one
 running, keyboard-driven TUI that satisfies `overview.md` R2's terminal-
@@ -96,14 +97,24 @@ just a description of the Drop guard.
    `dashboard` against a real paired opencode server, confirm it shows live
    sessions, respond to a few keys, quit cleanly, and check the terminal is
    left sane afterward.
-9. **Tombstone-to-claim-release wiring.** This is the only task where T09's
-   tombstone signal and T10's claim-release function meet at runtime — wire
-   them: when the main loop observes a tombstone from T09's reconcile sweep,
-   it calls T10's release for that session/project before the next redraw,
-   and the freed name/category becomes assignable to a new session/project
-   in that same or a later frame. Prove this with a test (T09 tombstone
-   fixture → T10's claim state observably frees the slot), not just a code
-   read.
+9. **Claim wiring, both directions, for every live session including
+   subagents.** T11's gate surfaced that nothing in T10's contract or
+   `visuals.md` R6.8 assigns responsibility for claiming a *subagent*
+   session's name — T11's render layer falls back to the subagent's raw
+   harness-native id when T10 has never been asked to claim one. This task
+   closes that gap: subagent sessions (`parent_id.is_some()`) are ordinary
+   sessions under `client.md` R1.5's identity model and R5.6 renders them
+   with a claimed `↳ nick action` line, so the main loop calls T10's claim
+   for **every** live session T09 reports — top-level and subagent alike —
+   not just top-level ones. Symmetrically, **tombstone-to-claim-release
+   wiring**: when the main loop observes a tombstone from T09's reconcile
+   sweep for any session or project (subagent included), it calls T10's
+   release before the next redraw, and the freed name/category becomes
+   assignable to a new session/project in that same or a later frame. Prove
+   both directions with tests: a subagent fixture that ends up with a real
+   claimed nickname (not the id fallback) after this task's wiring runs, and
+   a T09 tombstone fixture whose slot is observably freed in T10's claim
+   state — not just a code read.
 10. `cargo build/test/clippy/fmt` clean workspace-wide; nothing outside this
     contract's owns-list touched.
 
@@ -117,7 +128,7 @@ just a description of the Drop guard.
 the reviewer may look at or discover. It cannot suppress credible severe
 evidence.*
 
-**As of** — contract version 2
+**As of** — contract version 3
 
 **Context** — Integration task — wires T09/T10/T11 into a running TUI.
 Terminal-restore-on-crash is explicitly at the delivery profile's release bar.
