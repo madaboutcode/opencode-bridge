@@ -1,0 +1,42 @@
+ ◆ opencode  · 2 projects · 7 sessions · ◐ 7                                                                                                          
+ big-monorepo  6                                                                                                             ◐ 6  tiny-service  1     
+ ◐ Thor                                     ◐ Odin                                     ◐ Njord                                    ◐ Bumrah            
+ running: bazel build //...                 running: bazel build //...                 running: bazel build //...                 shell: cargo        
+ running · 1m                               running · 2m                               running · 3m                               check               
+                                                                                                                                  running · 30s       
+ Build the monorepo                         Build the monorepo                         Build the monorepo                                             
+ shell: bazel build //...                   shell: bazel build //...                   shell: bazel build //...                   Bump lockfile       
+ shell: bazel test //...                    shell: bazel test //...                    shell: bazel test //...                                        
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
++3 sessions                                                                                                                                           
+                                                                                                                                                      
+q quit  arrows/jk move  enter select  ] window  a all                                                                                                 

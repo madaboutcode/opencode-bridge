@@ -139,3 +139,46 @@ or implementer actually found and judged real.
   next turn boundary. Consequence: an understated "running for" duration in
   that narrow window. Trigger: reported as a visibly wrong elapsed time in
   real use.
+
+## T11 — Mosaic layout and card rendering (spike promotion)
+
+- R6.5's "fall back to the full relative path if it fits" width-aware
+  fallback stays unreachable in v1, by design. T09's `SessionSnapshot` only
+  carries the already-rendered `"editing: " + basename` string
+  (`current_action: Option<String>`), never a separate full relative path a
+  width-aware choice would need to evaluate. T11's render layer passes
+  `current_action` straight through unmodified — it does not attempt to
+  reverse-engineer a path from the rendered string, since that would couple
+  T11 to T09's internal rendering format instead of its declared type.
+  Reviewed and signed off by `ask_opus` (T11's reviewer) as correct given
+  `snapshot.rs`'s own doc comment on `current_action` ("never a raw tool
+  name or argument object" — i.e. intentionally a pre-rendered,
+  non-decomposable string). Assumption: basename-only is an acceptable v1
+  simplification of R6.5. Consequence: a long path that would fit in a wide
+  tile is still shown truncated to its basename; readability floor is still
+  met, just not the spec's stated "prefer full path when it fits" behavior.
+  Trigger: if this is reported as a real usability complaint, or if a future
+  task needs the fallback, promote by adding an additive field to T09's
+  `SessionSnapshot` (e.g. a full relative path alongside the pre-rendered
+  action string) — that's a T09-boundary change, not a T11 one.
+- Subagent nicknames fall back to the harness-native session id
+  (`view.rs`'s `nickname_or_fallback`) when T10's `NamingClaimMap` has no
+  claimed nickname for that session. Found by the implementer while wiring,
+  not present in T09's original deferral list. Root cause: neither T10's
+  contract nor `visuals.md` R6.8 specifies who is responsible for calling
+  `claim_batch`/`claim_session` for a *subagent* session — `LiveSession`
+  doesn't distinguish top-level from subagent sessions at all, and T11's
+  boundary limits it to reading T10's public output, never driving claims
+  itself. If T12's eventual wiring only ever claims top-level sessions, a
+  subagent's `nickname_of()` lookup always returns `None`. Assumption: this
+  fallback (truncated harness-native id, still harness-agnostic since T09
+  already hands it over as an opaque string) is an acceptable placeholder
+  rather than a crash — `render.rs`'s `draw()` runs every frame under T12's
+  main loop, so panicking over a missing cosmetic label would be
+  disproportionate. Reviewed and signed off by `ask_opus` as meeting the
+  `FALLBACK-OK` bar. Consequence: subagent tiles show a raw id fragment
+  instead of a claimed nickname, unless/until T12's wiring claims them too.
+  Trigger: at T12 scoping time, decide whether subagent sessions get claimed
+  in the `NamingClaimMap` (making this fallback path dead code in practice)
+  or whether the fallback is the accepted permanent v1 behavior — this
+  needs an explicit call, not a default assumption either way.

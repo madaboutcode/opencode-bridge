@@ -10,3 +10,8 @@ publish = false
 opencode-client = { path = "../opencode-client" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 serde_json = "1"
+# T11: Mosaic layout/render, ported from the verified spike
+# (tmp/20260901-prototype-dashboard-layout/), which pinned this same "0.28"
+# version. First and only TUI dependency in this workspace (R1.1) — belongs
+# only in this crate, never in opencode-client.
+ratatui = "0.28"
