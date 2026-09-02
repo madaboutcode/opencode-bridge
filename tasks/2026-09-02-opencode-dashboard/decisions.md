@@ -188,3 +188,62 @@ got resolved correctly), and confirmed "hash" as a general term (not a
 formula) is the right line to draw given the Reversal section's
 birthday-paradox reasoning depends on the reader knowing the scheme is
 content-derived and scattered.
+
+## 2026-09-02 — delivery-profile.md retrofitted and approved; M3 role binding changed
+
+Considered: M1's scoping predated (or skipped) the scoping stage's item 7,
+`delivery-profile.md` — no such file existed going into M3. Options: skip it
+and decompose M3 straight from the spec tree, or retrofit it now per the
+scoping stage's own definition-of-ready. User chose to retrofit formally.
+Chosen: advisor drafted `delivery-profile.md` from supplied facts (signed-off
+spec tree, requirements doc, the Mosaic layout spike + BRIEF-v2, T01's
+identity-spike evidence, and a fresh scan of every `[REVIEW:]`/OPEN marker).
+User approved all four of advisor's amendments to the conductor's initial
+v1-cut proposal:
+1. Card content scales continuously with tile size (`layout.md` R5.3), not
+   fixed at 3 lines — reverses the conductor's initial lean, which had the
+   requirement dates backwards (R6.3 is 2026-09-01, R5.3 is CONFIRMED
+   2026-09-02) and missed that R5.10's provenance note records fixed-3-line
+   cards were already built and rejected by real-render evidence (blank
+   space below the text in a larger proportional box). R6.3 is read as
+   governing the compact regime's content/order, not a global line count —
+   both requirements survive; `visuals.md`'s open tag closes.
+2. Chrome (R6.2) and minimum tile sizes (R5.5) are already answered by the
+   verified borderless Mosaic build and BRIEF-v2's regime table respectively
+   — dropped from v1 work as new decisions, kept as confirmation passes only.
+3. Session zoom (R7.1) is cut from v1 entirely, not shipped as a "confirmed
+   subset" as the conductor first proposed — no prototype exists for it, it
+   needs a second full-screen view and its own fetch/navigation/escape
+   semantics, and it doesn't serve R7's own "at a glance" purpose. Enter is
+   unbound or shows "not yet" in v1; deferred with trigger "user finds
+   themselves needing detail the tile cannot carry."
+4. R1.7 (staleness) splits: display treatment defers, but claim *release* on
+   explicit session-gone does not — R6.8's claim-map depends on it, and a
+   session vanishing without release would hold its name/category forever.
+Also changed, same sitting: **M3's implementer/reviewer role binding**
+switches from `coder`/`ask_opus` (M1-M2) to opencode-hosted agents —
+implementer = opencode `deepseek` agent, reviewer = opencode `glm-5.3` agent,
+both dispatched via `mcp__opencode-bridge__opencode_task` with the `agent`
+param (never `model`), `wait: true` so the refine-loop stays synchronous
+despite the bridge's async default. `runner` stays `coder`; `advisor` stays
+Opus.
+Why: user's explicit choice, both for the delivery-profile retrofit and for
+trying the cheaper/faster opencode agents on real implementation work now
+that the spike round they were originally proposed for was cut for being
+too much process without a running product.
+Limitations: the opencode implementer/reviewer pairing is **unproven on this
+repo's Rust code** — user asked for a one-task trial (M3's first task, the
+Cargo workspace migration) before treating it as M3's standing binding. If
+the trial's gate report is weak, the binding reverts to `coder`/`ask_opus`
+for the remainder of M3 without further discussion.
+Reversal: if the trial task's refine-loop produces a weak gate report (poor
+Rust quality, reviewer missing real defects, or the async-dispatch/`wait`
+mechanics proving unreliable), revert to `coder`/`ask_opus` for M3's
+remaining tasks. If a capacity/scale assumption in delivery-profile.md breaks
+(R5.8's ~8-session design center, or the case-preserving-filesystem
+assumption behind the R1.6 deferral), reopen this profile rather than
+patching around it silently.
+Sign-off: advisor drafted the profile and proposed the four amendments;
+user approved all four plus the role-binding change. Scoping definition-
+of-ready item 7 (delivery profile approved) and the roles portion of item 5
+now both hold for M3.
