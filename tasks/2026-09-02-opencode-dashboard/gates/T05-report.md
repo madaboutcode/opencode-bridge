@@ -1,0 +1,9 @@
+<!-- gates/T05-report.md. Written by the task's runner; it is the conductor's entire
+     gate and must stand alone. -->
+
+# T05 — gate report
+
+**Conformance:** yes — reviewer's explicit verdict against the contract's acceptance criteria: `visuals.md` covers R6-R6.3 and R6.7-R6.8 with original numbering preserved; R6.8's full scheme (both claim layers — project→category hash+scan, session→word hash+probe — the cooldown/recycling rule, both hard uniqueness guarantees and their two capacity assumptions, the explicit reversal of the 2026-09-01 adjective+noun decision with its reasoning intact, and the R1.7 coupling cross-reference) is transcribed precisely enough that a reader unfamiliar with the requirements doc could implement it correctly; the full 10-category/60-word Appendix is copied in byte-identical to source (independently verified: 105 total words, 10-14 per category, no cross-category duplicates, all ≤10 chars); every requirement has a co-located scenario; all three OPEN items are marked `[REVIEW: ...]` (R6.2 chrome axis, R6.7 question-badge phrase list, R6.8 capacity edge case); and R6.3's action-line content correctly cross-references `client.md` R6.5 rather than duplicating the tool→action-line mapping table. Reviewer checked R6.8 line by line against the requirements doc per the contract's calibration instruction, given its two hard correctness guarantees.
+**Passes:**
+- Pass 1 — reviewer found no issues above the depth line. One minor convention observation: R6.8 has three co-located scenarios (project→category collision, word cooldown/probe, per-project uniqueness) rather than the project's usual one-per-requirement. Reviewer's own recommendation was to keep all three rather than trim, since R6.8 bundles three independent sub-mechanics and the convention was written for requirements of normal complexity — judged correct author judgment, not a defect. No fixes needed — no pass 2 run.
+**Residuals:** none.
