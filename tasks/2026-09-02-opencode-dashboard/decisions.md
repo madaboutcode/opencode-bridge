@@ -59,3 +59,33 @@ Sign-off: advisor, contingent on committing the milestone's actual product
 `decisions.md`/`contracts/`/`advisor-brief.md`, all landed in the same
 sign-off commit as this entry. PLAN.md's git policy corrected to name project
 docs explicitly as milestone artifacts, so this doesn't recur at M2/M3.
+
+## 2026-09-02 — R6.8 naming scheme redesigned (out-of-band of M1/M2 tasks)
+
+Considered: leave R6.8's adjective+noun scheme as-is (already CONFIRMED,
+out of scope per PLAN.md's "don't re-litigate CONFIRMED sections" rule) vs.
+revisit it now that the user wants single-word categorized names.
+Chosen: revisit and rewrite R6.8 directly (coordinator-authored, not
+delegated — this was design judgment, not implementation). Ran it through
+`advisor` as a brainstorming pressure-test, not a formal scoping/milestone
+gate, since it's a requirements-doc edit between milestones, not a task
+inside M1 or M2.
+Why: the user's ask (single word, no adj+noun combining, categorized by
+project) couldn't coexist with the old "accept collisions, never fix at
+render time" rule at single-word scale (birthday-paradox math) — a real
+correctness conflict, not a style preference, so it had to be resolved before
+M2's `client.md` could describe project resolution's neighbor, the naming
+scheme.
+Outcome: two-layer claim scheme (project→category, session→word), both
+hash-preferred with deterministic probe-on-conflict; cooldown-based
+recycling (not immediate reuse); category claim guarantees no two live
+projects share a category, so screen-wide uniqueness holds given category
+count > live project count. 10 categories (60 words) approved and frozen —
+see the Appendix in the requirements doc.
+Limitations: capacity edge case (more live projects than categories, or more
+sessions than one category's word count) has no defined fallback yet —
+recorded as an OPEN item, deferred as happy-path-first per the same design
+center as the conductor run.
+Reversal: if either capacity assumption breaks in real use, or R1.7's
+eventual staleness rule can't cleanly evict claims, revisit before M3 builds
+the resolver.
