@@ -83,7 +83,11 @@ pub fn init() -> Option<PathBuf> {
             return None;
         }
         let path = dir.join(format!("bridge-{}.log", std::process::id()));
-        let f = OpenOptions::new().create(true).append(true).open(&path).ok()?;
+        let f = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok()?;
         opened_path = Some(path.clone());
         Some(Mutex::new(f))
     });
@@ -119,7 +123,13 @@ pub fn write(level: Level, component: &str, msg: &str) {
     if level > logger.max_level {
         return;
     }
-    let line = format!("{} {} [{}] {}\n", now_millis(), level.label(), component, msg);
+    let line = format!(
+        "{} {} [{}] {}\n",
+        now_millis(),
+        level.label(),
+        component,
+        msg
+    );
     if let Some(file) = &logger.file {
         if let Ok(mut f) = file.lock() {
             let _ = f.write_all(line.as_bytes());

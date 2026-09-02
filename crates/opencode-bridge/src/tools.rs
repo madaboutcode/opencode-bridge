@@ -8,9 +8,9 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde_json::{json, Value};
 
 use crate::error::Result;
-use crate::opencode::{AgentInfo, ModelInfo, ModelRef};
 use crate::registry::Status;
 use crate::state::AppState;
+use opencode_client::{AgentInfo, ModelInfo, ModelRef};
 
 /// Bridge-side cap on how long `wait=true` blocks (SPEC.md §7.5). CC
 /// enforces its own MCP tool-call timeout; if we blocked past it, CC kills
@@ -477,7 +477,9 @@ async fn wait_and_finish(
     // `error` carries the real failure reason (e.g. a provider 402) so a
     // wait=true caller sees why an empty-output turn failed, not just
     // outcome=failed. Null on success.
-    Ok(json!({"session_id": session_id, "output": turn.text, "outcome": outcome, "error": turn.error}))
+    Ok(
+        json!({"session_id": session_id, "output": turn.text, "outcome": outcome, "error": turn.error}),
+    )
 }
 
 /// Short, readable slug for a session title tag (SPEC.md §8): lowercase,
@@ -851,7 +853,7 @@ mod tests {
     //! described in SPEC.md §6 require an opencode2 service; run them
     //! manually with the pipe harness in README.md.
     use super::*;
-    use crate::opencode::{
+    use opencode_client::{
         latest_assistant_error, latest_assistant_text, AgentInfo, AgentModel, Message,
         MessageError, MessagePart, MessageTime,
     };

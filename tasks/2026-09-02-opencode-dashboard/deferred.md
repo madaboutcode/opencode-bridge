@@ -24,3 +24,30 @@ or implementer actually found and judged real.
   Happy-path-first for this run (per PLAN.md), so not a new task — flagged by
   advisor at M1 milestone review, recorded here rather than silently
   unhandled.
+
+## T08 — Cargo workspace migration
+
+- `crates/opencode-client/src/opencode.rs` (a byte-for-byte move, unchanged
+  content per the contract's migration rule) carries comments that reference
+  bridge-internal modules — `tools.rs`, `sse.rs`,
+  `registry::Registry::claim_notification` — which made sense when the file
+  lived inside the bridge crate. Now that it's in the shared client library,
+  these describe a consumer's internals from inside the library. Assumption:
+  cosmetic only, doesn't affect correctness or the crate boundary itself.
+  Consequence: a reader of the library in isolation sees references to
+  modules it can't see. Trigger: a comment-cleanup pass on
+  `opencode-client/src/opencode.rs`, or the next time that file is touched
+  for another reason.
+- A real `cargo publish -p opencode-bridge` (registry publish, not
+  `--no-verify` packaging) currently fails: `opencode-client` isn't itself
+  published to crates.io, so cargo can't resolve the path dependency against
+  the registry index. Surfaced by the implementer, not the reviewer.
+  Assumption: this project's actual release process is tag-push → GitHub
+  Release with binary artifacts (confirmed in `CONTRIBUTING.md`), never
+  `cargo publish`; CI only runs `cargo package --list --no-verify`, which
+  skips registry resolution and doesn't catch this. Consequence: none under
+  today's release process; would block a future switch to `cargo publish`.
+  Trigger: this project ever adopts `cargo publish` as its release path, or
+  needs `opencode-client` published independently (e.g. for `crates/dashboard`
+  or a third consumer to depend on it via crates.io rather than a path/git
+  dependency).

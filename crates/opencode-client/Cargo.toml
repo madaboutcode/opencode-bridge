@@ -1,0 +1,16 @@
+[package]
+name = "opencode-client"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Shared HTTP + SSE client for opencode2 — auth, session-list/session-message calls, and the raw event-stream primitive. No TUI or MCP dependency."
+license = "MIT"
+
+[dependencies]
+tokio = { version = "1", features = ["process", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures-util = "0.3"
+eventsource-stream = "0.2.3"
+bytes = "1"

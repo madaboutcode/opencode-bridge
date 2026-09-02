@@ -1,0 +1,35 @@
+<!-- gates/T08-report.md. Written by the task's runner; it is the conductor's entire
+     gate and must stand alone. -->
+
+# T08 — gate report
+
+**Conformance:** yes — reviewer's (ask_opus) explicit pass-1 verdict against the contract's Acceptance section, checked item by item: build/test/clippy clean (29 tests, unchanged in substance), `opencode-client` has zero TUI/MCP deps, release binary path unchanged, CI updated for the workspace and correctly scoped (`cargo package --list -p opencode-bridge`), `dashboard` builds and runs its placeholder, nothing outside the owns-list touched. The one item marked PARTIAL in pass 1 (item 4, `cargo fmt --all -- --check`) was fixed and independently re-verified clean by the runner (see Passes and Residuals below — pass-2 reviewer confirmation did not return; see Challenges).
+
+**Calibration:** delivery profile version 1 · contract version 1 · Review Frame "as of" contract version 1 — matched, no mismatch.
+
+**Passes:**
+- Pass 1 — implementer: `coder` (Agent-tool subagent). Built the workspace per the contract's split: `crates/opencode-client` (byte-identical move of `opencode.rs`'s `Client`, plus a new `sse.rs` raw `EventStream` primitive), `crates/opencode-bridge` (everything else, import-paths updated only), `crates/dashboard` (skeleton, depends on `opencode-client`, prints placeholder + exits 0). Reviewer: `ask_opus` (Agent-tool subagent), independent judgment, found the crate boundary correctly drawn (matches R1.1's scope) and two findings: (1, low) 3 pre-existing `cargo fmt` violations in `log.rs`/`tools.rs`, carried forward from before this task (verified byte-identical to commit `fe9c61b` by both the implementer and the runner independently) — correctly left untouched in the structural move per the contract's formatting-isolation rule, but the contract's own Conventions section explicitly licenses fixing this as "a separate follow-up commit, never folded into the structural change," and acceptance item 4 requires the owns-list fmt-clean, so disposition was fix-now-as-separate-commit. (2, informational, deferred) `opencode-client/src/opencode.rs` carries stale comments referencing bridge-internal modules (`tools.rs`, `sse.rs`, `registry::Registry::claim_notification`) — correct as-is since the file is a byte-for-byte move; a cleanup pass belongs to a later, separate commit, not this migration.
+  - Runner's own independent verification after pass 1 (before sending fix #1 to the implementer): re-ran `cargo build --workspace --all-targets --locked`, `cargo test --workspace --all-targets --locked` (29 passed), `cargo clippy --workspace --all-targets -- -D warnings` (clean), confirmed `crates/opencode-client/Cargo.toml` deps have no TUI/MCP, ran the `dashboard` binary (prints placeholder, exits 0), confirmed release binary at `target/release/opencode-bridge`, and diffed `log.rs`/`tools.rs` against commit `fe9c61b` to confirm the 3 fmt violations pre-date this task.
+- Fix — implementer ran `cargo fmt` on exactly `crates/opencode-bridge/src/log.rs` and `crates/opencode-bridge/src/tools.rs` (the two files with violations), nothing else. Runner independently re-ran the full acceptance suite: build clean, 29 tests pass, clippy clean, `cargo fmt --all -- --check` now clean, `git status` confirms only those two files changed (formatting only) beyond the pass-1 diff.
+- Pass 2 — reviewer (`ask_opus`, same agent, resumed) was asked to verify the fmt fix landed correctly and do one fresh scan of the changed areas. **Did not return.** See Challenges.
+
+**Residuals:** none known — every acceptance item is independently verified by the runner as of the fmt fix landing (see Passes). The only open item is procedural: the reviewer's own second look never completed, so pass 2's fresh-scan step (beyond what pass 1 already covered) did not happen. This is not a residual defect — it's a gap in review completeness, disclosed here rather than silently treated as "pass 2 clean."
+
+**Challenges:** none against the profile or Review Frame's substance. Operational challenge, not a review-substance one: the pass-2 reviewer dispatch (an Agent-tool subagent resumed via `SendMessage` to its `agentId`) never returned a response — over 3 hours elapsed against a ~3.7-minute pass-1 turnaround for the same agent on a comparable-sized ask, with no polling/cancel tool available to check its liveness (unlike the opencode-dispatch mechanism used earlier in this task, which does have one). The runner flagged this to the conductor twice during the wait (at ~52 min and ~90 min) and a third time at ~3 hours with an explicit fallback plan, then proceeded on that plan after receiving no reply within the stated window. This closes the gate on pass-1 review + the runner's own independent re-verification of the fix, not on a second independent judgment pass — a real, if hopefully rare, gap in this run's review coverage for T08 specifically. Recommend the conductor treat this dispatch mechanism's reliability (Agent-tool subagent resume via `SendMessage`) as a second, distinct trial-viability question alongside the earlier opencode-dispatch finding, if this pattern recurs on a later task.
+
+**Contested:** none.
+
+**Deferred:** appended to `deferred.md` — the stale bridge-internal comments in `crates/opencode-client/src/opencode.rs` (pass-1 finding 2, informational).
+
+## Independent findings, not from either agent
+
+Also see `deferred.md` for a related note from the implementer's own report (not a reviewer finding, disclosed transparently by the implementer): `cargo publish -p opencode-bridge` (a real registry publish, not `--no-verify` packaging) would currently fail because `opencode-client` isn't itself published to crates.io — inherent to extracting a shared library behind a published crate. This is explicitly out of the Review Frame's budget ("multi-crate publish tooling and release-automation design beyond keeping today's workflow working") and CI never exercises `cargo publish` (only `cargo package --list --no-verify`), so it is not a release-path break under this task's actual release process (tag-push → GitHub Release with binary artifacts, confirmed in `CONTRIBUTING.md`). Logged to `deferred.md` per the profile's disposition rubric rather than silently dropped.
+
+## Files changed (owns-list)
+- `Cargo.toml`, `Cargo.lock` (workspace manifest conversion)
+- `crates/opencode-client/{Cargo.toml,src/{lib.rs,opencode.rs,sse.rs,error.rs}}` (new)
+- `crates/opencode-bridge/{Cargo.toml,src/{main.rs,mcp.rs,tools.rs,state.rs,registry.rs,notify.rs,log.rs,error.rs,sse.rs}}` (moved from `src/`, import-paths updated; `log.rs`/`tools.rs` also fmt-fixed per above)
+- `crates/dashboard/{Cargo.toml,src/main.rs}` (new, skeleton)
+- `.github/workflows/ci.yml` (workspace-scoped build/test/clippy/package/MSRV steps)
+- `README.md` (one path-link update: `src/tools.rs` → `crates/opencode-bridge/src/tools.rs`, a path that actually moved)
+- `src/{error.rs,log.rs,main.rs,mcp.rs,notify.rs,opencode.rs,registry.rs,sse.rs,state.rs,tools.rs}` deleted (moved into the new crate layout)

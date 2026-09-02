@@ -5,7 +5,7 @@
 //! notify on, and the idempotency guard for that notification.
 
 use crate::error::Result;
-use crate::opencode::ModelRef;
+use opencode_client::ModelRef;
 use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::SystemTime;

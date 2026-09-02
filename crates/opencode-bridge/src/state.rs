@@ -4,8 +4,8 @@
 //! and `Registry` already has interior mutability.
 
 use crate::notify::Notifier;
-use crate::opencode::Client;
 use crate::registry::Registry;
+use opencode_client::Client;
 
 pub struct AppState {
     pub client: Client,

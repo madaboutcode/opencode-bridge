@@ -30,7 +30,7 @@ Four MCP tools, each broader than they look:
 | `opencode_cancel` | Interrupt a running session's current turn. |
 | `opencode_catalog` | Browse the server's agents and models as a scored, agents-first text table with a substring/AND filter. |
 
-The tool schemas in [`src/tools.rs`](src/tools.rs) are the source of truth for arguments.
+The tool schemas in [`crates/opencode-bridge/src/tools.rs`](crates/opencode-bridge/src/tools.rs) are the source of truth for arguments.
 
 ## Install
 

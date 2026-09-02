@@ -1,0 +1,10 @@
+[package]
+name = "dashboard"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "TUI dashboard watching opencode sessions across projects. Skeleton only — see docs/specs/dashboard/overview.md for the design later M3 tasks fill in."
+publish = false
+
+[dependencies]
+opencode-client = { path = "../opencode-client" }

@@ -9,7 +9,6 @@ mod error;
 mod log;
 mod mcp;
 mod notify;
-mod opencode;
 mod registry;
 mod sse;
 mod state;
@@ -64,11 +63,11 @@ async fn run() -> Result<()> {
         ),
     }
 
-    let bin = opencode::resolve_bin();
-    let creds = opencode::pair(&bin).await?;
+    let bin = opencode_client::resolve_bin();
+    let creds = opencode_client::pair(&bin).await?;
     linfo!("boot", "discovered opencode2 at {}", creds.base_url);
 
-    let client = opencode::Client::new(bin, creds);
+    let client = opencode_client::Client::new(bin, creds);
     client.health().await.map_err(|e| {
         format!("GET /api/health failed: {e} — is `opencode2 service start` running?")
     })?;

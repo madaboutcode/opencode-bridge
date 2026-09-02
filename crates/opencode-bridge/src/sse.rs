@@ -6,13 +6,18 @@
 //! terminal while disconnected. A separate periodic sweep runs the same
 //! reconcile on a timer, independent of SSE health — SSE is a latency
 //! optimization, not the correctness mechanism (SPEC.md §7).
+//!
+//! The raw transport (opening `/api/event`, decoding eventsource frames
+//! into a typed event, the idle-read timeout) lives in
+//! `opencode_client::sse` — this module owns everything MCP-specific:
+//! reconnect/backoff policy, the tracked-session registry, interpreting
+//! `session.execution.*` as a terminal `Status`, and firing the CC
+//! callback.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use eventsource_stream::Eventsource;
-use futures_util::StreamExt;
-use serde_json::Value;
+use opencode_client::sse::{Event, EventStream};
 
 use crate::error::Result;
 use crate::registry::Status;
@@ -70,25 +75,25 @@ async fn connect_and_consume(state: &Arc<AppState>) -> Result<()> {
     // stream.
     reconcile(state).await;
 
-    // eventsource-stream (SPEC.md §7.8) handles multi-line `data:` fields,
-    // `:` comment keepalives, and frames split across TCP chunks — a hand-
-    // rolled `data: ` line splitter breaks on all three.
-    let mut stream = resp.bytes_stream().eventsource();
+    // opencode_client::sse (SPEC.md §7.8) handles multi-line `data:`
+    // fields, `:` comment keepalives, frames split across TCP chunks, and
+    // the idle-read timeout — a hand-rolled `data: ` line splitter breaks
+    // on all three.
+    let mut stream = EventStream::new(resp);
     loop {
-        let event = match tokio::time::timeout(SSE_READ_TIMEOUT, stream.next()).await {
-            Ok(Some(Ok(event))) => event,
-            Ok(Some(Err(e))) => return Err(format!("SSE stream error: {e}").into()),
-            Ok(None) => {
+        match stream.next(SSE_READ_TIMEOUT).await? {
+            Some(Ok(event)) => handle_event(state, event).await,
+            Some(Err(e)) => {
+                // FALLBACK-OK: SPEC.md §1 doesn't enumerate malformed SSE
+                // frames; one bad frame must not kill the consumer for
+                // every tracked session.
+                lwarn!("sse", "skipping unparseable event frame: {e}");
+            }
+            None => {
                 linfo!("sse", "stream ended by server");
                 return Ok(());
             }
-            Err(_elapsed) => {
-                return Err(
-                    format!("no data for {SSE_READ_TIMEOUT:?} (half-open connection?)").into(),
-                );
-            }
-        };
-        handle_event_line(state, &event.data).await;
+        }
     }
 }
 
@@ -133,47 +138,35 @@ async fn reconcile(state: &Arc<AppState>) {
     }
 }
 
-async fn handle_event_line(state: &AppState, json_str: &str) {
-    let envelope: Value = match serde_json::from_str(json_str) {
-        Ok(v) => v,
-        Err(e) => {
-            // FALLBACK-OK: SPEC.md §1 doesn't enumerate malformed SSE
-            // frames; one bad frame must not kill the consumer for every
-            // tracked session.
-            lwarn!("sse", "skipping unparseable event frame: {e}");
-            return;
-        }
-    };
-    let Some(event_type) = envelope.get("type").and_then(Value::as_str) else {
-        return; // frame without a "type" field — not an event shape we understand
-    };
-
+async fn handle_event(state: &AppState, event: Event) {
     // DEBUG: record every session-scoped frame (type + sessionID + durable
     // seq) so the full ordered event sequence for a session is
     // reconstructable from the log. This is the instrument for the
     // "completion detected while the agent kept going" question: if a
     // session emits execution.succeeded and then MORE frames, the sequence
     // shows it. Gated to debug so the default run stays cheap.
-    if event_type.starts_with("session.") {
+    if event.kind.starts_with("session.") {
         ldebug!(
             "event",
-            "type={event_type} session={} seq={}",
-            envelope
-                .pointer("/data/sessionID")
-                .and_then(Value::as_str)
-                .unwrap_or("-"),
-            seq_str(&envelope)
+            "type={} session={} seq={}",
+            event.kind,
+            event.session_id.as_deref().unwrap_or("-"),
+            seq_str(&event)
         );
     }
 
-    let Some(suffix) = event_type.strip_prefix("session.execution.") else {
+    let Some(suffix) = event.kind.strip_prefix("session.execution.") else {
         return; // not a turn-terminal event family — nothing to do
     };
     let Ok(status) = Status::from_outcome(suffix) else {
         return; // e.g. "session.execution.started" — not a terminal suffix
     };
-    let Some(session_id) = envelope.pointer("/data/sessionID").and_then(Value::as_str) else {
-        lwarn!("sse", "{event_type} event missing data.sessionID, ignoring");
+    let Some(session_id) = event.session_id.as_deref() else {
+        lwarn!(
+            "sse",
+            "{} event missing data.sessionID, ignoring",
+            event.kind
+        );
         return;
     };
     // INFO: a terminal event reached us on the live stream. Logged distinctly
@@ -182,7 +175,7 @@ async fn handle_event_line(state: &AppState, json_str: &str) {
     linfo!(
         "sse",
         "terminal event type={suffix} session={session_id} seq={} source=sse",
-        seq_str(&envelope)
+        seq_str(&event)
     );
     complete_session(state, session_id, status).await;
 }
@@ -190,10 +183,9 @@ async fn handle_event_line(state: &AppState, json_str: &str) {
 /// `durable.seq` as a string (or "-"), for the event-sequence log lines.
 /// opencode stamps a monotonic per-session seq on each frame; logging it
 /// lets a reader order events and spot gaps even if lines interleave.
-fn seq_str(envelope: &Value) -> String {
-    envelope
-        .pointer("/durable/seq")
-        .and_then(Value::as_i64)
+fn seq_str(event: &Event) -> String {
+    event
+        .seq
         .map(|s| s.to_string())
         .unwrap_or_else(|| "-".to_string())
 }
@@ -222,7 +214,7 @@ async fn complete_session(state: &AppState, session_id: &str, status: Status) {
                 "sse",
                 "failed to fetch final turn for {session_id}: {e} — notifying without body"
             );
-            crate::opencode::FinalTurn::default()
+            opencode_client::FinalTurn::default()
         }
     };
 

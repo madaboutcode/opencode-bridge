@@ -75,6 +75,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "dashboard"
+version = "0.1.0"
+dependencies = [
+ "opencode-client",
+]
+
+[[package]]
 name = "displaydoc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -500,6 +507,16 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "opencode-bridge"
 version = "0.1.0"
 dependencies = [
+ "opencode-client",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "opencode-client"
+version = "0.1.0"
+dependencies = [
+ "bytes",
  "eventsource-stream",
  "futures-util",
  "reqwest",

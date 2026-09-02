@@ -1,0 +1,20 @@
+[package]
+name = "opencode-bridge"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "MCP stdio server that drives opencode2 over HTTP + SSE — async-by-default task dispatch with completion callbacks into the launching MCP client session."
+license = "MIT"
+repository = "https://github.com/madaboutcode/opencode-bridge"
+readme.workspace = true
+keywords = ["mcp", "opencode", "claude-code", "sse", "agent"]
+categories = ["command-line-utilities", "development-tools"]
+# Exclude build-session provenance from the published package — README
+# describes docs/internal/ as private, and tasks/ contains local handoffs and
+# plans; nothing in either location should ship to crates.io users.
+exclude = ["docs/internal/**", "tasks/**", ".github/ISSUE_TEMPLATE", ".github/PULL_REQUEST_TEMPLATE.md"]
+
+[dependencies]
+opencode-client = { path = "../opencode-client", version = "0.1.0" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "net", "sync", "time"] }
+serde_json = "1"

@@ -45,17 +45,21 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets -- -D warnings
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: cargo build
-        run: cargo build --all-targets --locked
+        run: cargo build --workspace --all-targets --locked
 
       - name: cargo test
-        run: cargo test --all-targets --locked
+        run: cargo test --workspace --all-targets --locked
 
       - name: cargo package --list (no internal docs)
+        # opencode-bridge is the only published crate — a bare `cargo
+        # package` doesn't resolve to a single crate in a workspace, so
+        # scope it explicitly. This is the crate whose exclude list keeps
+        # docs/internal/ and tasks/ out of the crates.io tarball.
         run: |
-          cargo package --locked --no-verify --list | tee /tmp/pkg-list.txt
+          cargo package --locked --no-verify --list -p opencode-bridge | tee /tmp/pkg-list.txt
           if grep -Eq "docs/internal|tasks/" /tmp/pkg-list.txt; then
             echo "Internal files found in package"
             exit 1
@@ -63,7 +67,7 @@ jobs:
 
       - name: MSRV check (Cargo.toml rust-version)
         run: |
-          cargo metadata --format-version=1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); v=d["packages"][0]["rust_version"]; assert v=="1.75", f"rust-version mismatch: {v}"; print(f"MSRV {v} OK")'
+          cargo metadata --format-version=1 --no-deps | python3 -c 'import json,sys; d=json.load(sys.stdin); v=next(p for p in d["packages"] if p["name"]=="opencode-bridge")["rust_version"]; assert v=="1.75", f"rust-version mismatch: {v}"; print(f"MSRV {v} OK")'
 
       - name: Build release binary
         run: cargo build --release --locked
