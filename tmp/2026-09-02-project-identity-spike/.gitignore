@@ -1,1 +1,3 @@
 /target/
+fixtures/symlink-to-repo-root
+fixtures/test-symlink-to-repo-root

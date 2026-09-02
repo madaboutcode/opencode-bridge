@@ -18,3 +18,9 @@ or implementer actually found and judged real.
   explicit gap in `tmp/2026-09-02-project-identity-spike/EVIDENCE.md`, not
   silently passed. Worth a dedicated check if a case-insensitive-filesystem
   environment becomes relevant to the dashboard.
+- `std::fs::canonicalize` requires the path to exist. A session whose working
+  directory was deleted after the session started, or lives on an unmounted
+  volume, makes project-identity resolution error with no defined fallback.
+  Happy-path-first for this run (per PLAN.md), so not a new task — flagged by
+  advisor at M1 milestone review, recorded here rather than silently
+  unhandled.
