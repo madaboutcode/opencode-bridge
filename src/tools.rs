@@ -310,11 +310,16 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
             } else {
                 None
             };
+            crate::linfo!(
+                "task",
+                "followup session={session_id} delivery={delivery} wait={wait} notify={notify} inserted_now={inserted_now}"
+            );
             if let Err(e) = state
                 .client
                 .prompt(&session_id, &prompt, Some(&delivery), &state.origin)
                 .await
             {
+                crate::lwarn!("task", "prompt failed (followup) session={session_id}: {e}");
                 if inserted_now {
                     state.registry.unregister(&session_id);
                 } else if let Some(prior) = prior_snapshot {
@@ -360,6 +365,15 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
                     directory.as_deref(),
                 )
                 .await?;
+            crate::linfo!(
+                "task",
+                "start session={session_id} agent={} model={} wait={wait} notify={notify}",
+                agent.as_deref().unwrap_or("-"),
+                model
+                    .as_ref()
+                    .map(|m| format!("{}/{}", m.provider_id, m.id))
+                    .unwrap_or_else(|| "-".to_string())
+            );
             // Register BEFORE prompting (SPEC.md §5/§8 race guard).
             state
                 .registry
@@ -385,6 +399,7 @@ async fn task(state: &AppState, args: Value) -> Result<Value> {
                 // after unregister — entry is gone, so no-op.
                 state.registry.unregister(&session_id);
                 drop(pre_claim);
+                crate::lwarn!("task", "prompt failed (start) session={session_id}: {e}");
                 return Err(e);
             }
             (session_id, pre_claim)
@@ -441,7 +456,7 @@ async fn wait_and_finish(
         }
     }
 
-    let output = state.client.final_output(session_id).await?;
+    let turn = state.client.final_turn(session_id).await?;
     let info = state.client.get_session(session_id).await?;
     let outcome = info
         .outcome
@@ -449,11 +464,20 @@ async fn wait_and_finish(
     let status = Status::from_outcome(&outcome)?;
     state
         .registry
-        .set_result(session_id, status, output.clone());
+        .set_result(session_id, status, turn.text.clone());
     if let Some(claim) = claim {
         claim.commit(); // reporting synchronously below — no async dup
     }
-    Ok(json!({"session_id": session_id, "output": output, "outcome": outcome}))
+    crate::linfo!(
+        "task",
+        "wait done session={session_id} outcome={outcome} has_text={} has_error={}",
+        turn.text.is_some(),
+        turn.error.is_some()
+    );
+    // `error` carries the real failure reason (e.g. a provider 402) so a
+    // wait=true caller sees why an empty-output turn failed, not just
+    // outcome=failed. Null on success.
+    Ok(json!({"session_id": session_id, "output": turn.text, "outcome": outcome, "error": turn.error}))
 }
 
 /// Short, readable slug for a session title tag (SPEC.md §8): lowercase,
@@ -500,7 +524,7 @@ async fn sessions(state: &AppState, args: Value) -> Result<Value> {
 
 async fn detail_session(state: &AppState, session_id: &str) -> Result<Value> {
     let info = state.client.get_session(session_id).await?;
-    let output = state.client.final_output(session_id).await?;
+    let turn = state.client.final_turn(session_id).await?;
     // SPEC.md §5: running = outcome absent OR time.idle older than time.updated
     // (idle absent counts as "older" — no idle timestamp recorded yet).
     let running = info.outcome.is_none()
@@ -516,7 +540,10 @@ async fn detail_session(state: &AppState, session_id: &str) -> Result<Value> {
         "idle": info.time.idle,
         "cost": info.cost,
         "tokens": info.tokens,
-        "output": output,
+        "output": turn.text,
+        // Real failure reason for a failed turn (e.g. provider 402), so
+        // inspecting a failed session shows why, not just outcome=failed.
+        "error": turn.error,
     }))
 }
 
@@ -825,7 +852,8 @@ mod tests {
     //! manually with the pipe harness in README.md.
     use super::*;
     use crate::opencode::{
-        latest_assistant_text, AgentInfo, AgentModel, Message, MessagePart, MessageTime,
+        latest_assistant_error, latest_assistant_text, AgentInfo, AgentModel, Message,
+        MessageError, MessagePart, MessageTime,
     };
     use serde_json::json;
 
@@ -1025,6 +1053,7 @@ mod tests {
                 kind: "user".into(),
                 time: MessageTime { created: 1 },
                 content: vec![],
+                error: None,
             },
             Message {
                 kind: "assistant".into(),
@@ -1039,6 +1068,7 @@ mod tests {
                         text: Some("hello ".into()),
                     },
                 ],
+                error: None,
             },
             Message {
                 kind: "assistant".into(),
@@ -1047,6 +1077,7 @@ mod tests {
                     kind: "text".into(),
                     text: Some("world".into()),
                 }],
+                error: None,
             },
         ];
         assert_eq!(latest_assistant_text(&messages).as_deref(), Some("world"));
@@ -1058,8 +1089,53 @@ mod tests {
             kind: "user".into(),
             time: MessageTime { created: 1 },
             content: vec![],
+            error: None,
         }];
         assert_eq!(latest_assistant_text(&messages), None);
+    }
+
+    #[test]
+    fn latest_assistant_error_reads_error_from_latest_assistant_turn() {
+        // A turn that failed before producing text (e.g. a provider 402
+        // credit rejection) carries no `text` part but a top-level `error`
+        // on the assistant message. latest_assistant_error must surface it,
+        // formatted, while latest_assistant_text returns an empty string.
+        let messages = vec![
+            Message {
+                kind: "user".into(),
+                time: MessageTime { created: 1 },
+                content: vec![],
+                error: None,
+            },
+            Message {
+                kind: "assistant".into(),
+                time: MessageTime { created: 2 },
+                content: vec![],
+                error: Some(MessageError {
+                    kind: "provider.unknown".into(),
+                    message: "This request requires more credits".into(),
+                    status: Some(402),
+                }),
+            },
+        ];
+        assert_eq!(
+            latest_assistant_error(&messages).as_deref(),
+            Some("provider.unknown (402): This request requires more credits")
+        );
+    }
+
+    #[test]
+    fn latest_assistant_error_is_none_for_a_clean_turn() {
+        let messages = vec![Message {
+            kind: "assistant".into(),
+            time: MessageTime { created: 1 },
+            content: vec![MessagePart {
+                kind: "text".into(),
+                text: Some("all good".into()),
+            }],
+            error: None,
+        }];
+        assert_eq!(latest_assistant_error(&messages), None);
     }
 
     #[test]

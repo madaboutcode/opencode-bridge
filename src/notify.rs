@@ -38,8 +38,9 @@ impl Notifier {
         let Some(path) = &self.socket_path else {
             return; // no socket configured — callbacks disabled
         };
-        if let Err(e) = self.send(path, text).await {
-            eprintln!("[bridge] notify: failed to deliver CC callback: {e}");
+        match self.send(path, text).await {
+            Ok(()) => ldebug!("notify", "delivered CC callback ({} bytes)", text.len()),
+            Err(e) => lwarn!("notify", "failed to deliver CC callback: {e}"),
         }
     }
 

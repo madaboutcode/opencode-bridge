@@ -5,6 +5,8 @@
 //! until stdin closes.
 
 mod error;
+#[macro_use]
+mod log;
 mod mcp;
 mod notify;
 mod opencode;
@@ -42,31 +44,48 @@ async fn main() {
     }
 
     if let Err(e) = run().await {
-        eprintln!("[bridge] fatal: {e}");
+        lerror!("fatal", "{e}");
         std::process::exit(1);
     }
 }
 
 async fn run() -> Result<()> {
+    match log::init() {
+        Some(path) => linfo!(
+            "boot",
+            "opencode-bridge {} starting — logging to {}",
+            env!("CARGO_PKG_VERSION"),
+            path.display()
+        ),
+        None => lwarn!(
+            "boot",
+            "opencode-bridge {} starting — no log file (dir unwritable); stderr only",
+            env!("CARGO_PKG_VERSION")
+        ),
+    }
+
     let bin = opencode::resolve_bin();
     let creds = opencode::pair(&bin).await?;
-    eprintln!("[bridge] discovered opencode2 at {}", creds.base_url);
+    linfo!("boot", "discovered opencode2 at {}", creds.base_url);
 
     let client = opencode::Client::new(bin, creds);
     client.health().await.map_err(|e| {
         format!("GET /api/health failed: {e} — is `opencode2 service start` running?")
     })?;
-    eprintln!("[bridge] opencode2 health check OK");
+    linfo!("boot", "opencode2 health check OK");
 
     let notifier = notify::Notifier::from_env();
     if notifier.enabled() {
-        eprintln!("[bridge] CC callback channel enabled");
+        linfo!("boot", "CC callback channel enabled");
     } else {
-        eprintln!("[bridge] CC callback channel disabled (no CLAUDE_CODE_MESSAGING_SOCKET) — running notify-less");
+        linfo!(
+            "boot",
+            "CC callback channel disabled (no CLAUDE_CODE_MESSAGING_SOCKET) — running notify-less"
+        );
     }
 
     let origin = derive_origin();
-    eprintln!("[bridge] origin = {origin}");
+    linfo!("boot", "origin = {origin}");
 
     // The bridge's cwd is where CC launched it — the user's project dir.
     // Use it as the default session directory so tasks land in the project
@@ -75,9 +94,10 @@ async fn run() -> Result<()> {
         .ok()
         .and_then(|p| p.to_str().map(str::to_string));
     match &default_dir {
-        Some(d) => eprintln!("[bridge] default session directory = {d}"),
-        None => eprintln!(
-            "[bridge] cwd unreadable — new sessions use opencode's server-side default dir"
+        Some(d) => linfo!("boot", "default session directory = {d}"),
+        None => lwarn!(
+            "boot",
+            "cwd unreadable — new sessions use opencode's server-side default dir"
         ),
     }
 

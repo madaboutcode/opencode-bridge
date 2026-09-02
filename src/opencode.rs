@@ -50,6 +50,33 @@ pub struct MessagePart {
     pub text: Option<String>,
 }
 
+/// The error opencode attaches to an assistant message when its turn fails
+/// before/while producing output — e.g. a provider `402` credit rejection,
+/// which emits `session.execution.failed` with `data.error={type,message,
+/// status}` and persists that same shape as a top-level `error` on the
+/// assistant message (verified live against `GET /session/{id}/message`).
+/// Captured so the bridge can hand the real reason back to the caller
+/// instead of an empty output.
+#[derive(Debug, Clone, Deserialize)]
+pub struct MessageError {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub message: String,
+    #[serde(default)]
+    pub status: Option<i64>,
+}
+
+impl MessageError {
+    /// One-line, human-readable rendering for a tool reply / CC callback,
+    /// e.g. `provider.unknown (402): This request requires more credits…`.
+    pub fn display(&self) -> String {
+        match self.status {
+            Some(status) => format!("{} ({}): {}", self.kind, status, self.message),
+            None => format!("{}: {}", self.kind, self.message),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct Message {
     #[serde(rename = "type")]
@@ -57,6 +84,20 @@ pub struct Message {
     pub time: MessageTime,
     #[serde(default)]
     pub content: Vec<MessagePart>, // present on assistant messages only
+    #[serde(default)]
+    pub error: Option<MessageError>, // set when this turn failed (assistant only)
+}
+
+/// Both halves of a finished turn: the assistant's output `text` (None if
+/// the turn produced none) and, if it failed, the `error` reason. A failed
+/// turn typically has `text: None, error: Some(..)`; a normal turn has
+/// `text: Some(..), error: None`. Both are read from a single `GET
+/// /message` so the "how we read opencode's message shape" logic stays in
+/// one place (SPEC.md §7).
+#[derive(Debug, Clone, Default)]
+pub struct FinalTurn {
+    pub text: Option<String>,
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -118,6 +159,19 @@ pub fn latest_assistant_text(messages: &[Message]) -> Option<String> {
                 .collect::<Vec<_>>()
                 .join("")
         })
+}
+
+/// The failure reason on the latest assistant turn, if it carries one.
+/// Read from the same "latest assistant message" as `latest_assistant_text`
+/// so text and error describe the same turn. `None` for a turn that didn't
+/// fail (the normal case).
+pub fn latest_assistant_error(messages: &[Message]) -> Option<String> {
+    messages
+        .iter()
+        .filter(|m| m.kind == "assistant")
+        .max_by_key(|m| m.time.created)
+        .and_then(|m| m.error.as_ref())
+        .map(MessageError::display)
 }
 
 /// Connection info for the paired opencode2 server. Swappable at runtime
@@ -469,13 +523,16 @@ impl Client {
         Ok(serde_json::from_value(data)?)
     }
 
-    /// Convenience: fetch messages and extract the latest assistant turn's
-    /// text in one call. Used by both the sync tool paths and the SSE
-    /// consumer so the "how do we read opencode's message shape" logic
-    /// lives in exactly one place.
-    pub async fn final_output(&self, session_id: &str) -> Result<Option<String>> {
+    /// Convenience: fetch messages once and extract the latest assistant
+    /// turn's output text AND its failure reason (if any). Used by both the
+    /// sync tool paths and the SSE consumer so the "how do we read
+    /// opencode's message shape" logic lives in exactly one place.
+    pub async fn final_turn(&self, session_id: &str) -> Result<FinalTurn> {
         let messages = self.list_messages(session_id).await?;
-        Ok(latest_assistant_text(&messages))
+        Ok(FinalTurn {
+            text: latest_assistant_text(&messages),
+            error: latest_assistant_error(&messages),
+        })
     }
 
     pub async fn list_sessions(&self) -> Result<Vec<SessionInfo>> {
