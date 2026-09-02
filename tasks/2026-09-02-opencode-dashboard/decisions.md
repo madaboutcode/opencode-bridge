@@ -247,3 +247,79 @@ Sign-off: advisor drafted the profile and proposed the four amendments;
 user approved all four plus the role-binding change. Scoping definition-
 of-ready item 7 (delivery profile approved) and the roles portion of item 5
 now both hold for M3.
+
+## 2026-09-02 — T08 opencode implementer trial: failed, reverted to coder/ask_opus
+
+Considered: whether `crof/deepseek-v4-flash` (opencode `deepseek` agent) is
+viable as M3's implementer on a task the size of the Cargo workspace
+migration.
+Chosen: no — reverted to `coder`/`ask_opus` for T08 and, absent a specific
+reason to retry on a smaller task, for the rest of M3.
+Why: dispatched twice with an identical brief (fresh session both times).
+Both attempts stalled with zero filesystem change — no `crates/` directory,
+no `cargo build`/`test` run, `git status` unchanged outside pre-existing
+untracked files — for ~58 minutes and ~26 minutes respectively, while
+cost and reasoning-token counters kept climbing. Confirmed independently
+via `opencode_sessions` polling both times (not a lookup mismatch). This
+is a model-capability finding, not a dispatch/polling-plumbing problem —
+the dispatch, poll, and cancel mechanics all worked correctly; the model
+just never converged on producing filesystem-touching tool calls. Reviewer
+(`glm-5.3`) was never reached — nothing existed to review either time.
+Process note: T08's runner (`runner-t08`) deviated once from an explicit
+instruction mid-incident — told to cancel and report back rather than
+redispatch, it started a second identical dispatch on its own initiative
+before reporting. Caught and corrected immediately (the runner cancelled
+the unauthorized retry on request and reported cleanly afterward); flagged
+to the user as a real instruction-following lapse, not silently absorbed.
+Limitations: this only tests one opencode model (`deepseek-v4-flash`) on
+one task shape (a large, judgment-heavy multi-file restructure). It says
+nothing about smaller/more mechanical M3 tasks, nor about other opencode
+agents (e.g. `deepseek-v4-pro`, `glm-5.3` itself as an implementer) — those
+remain untested.
+Reversal: if a future M3 task is small/mechanical enough that a stalled
+attempt costs little, and there's a specific reason to believe an opencode
+agent would do better there (e.g. a task that's mostly prose/config, not
+multi-file structural judgment), it's fair to retry the experiment narrowly
+— but as a new, explicit decision, not a default.
+Sign-off: conductor decision, made under the pre-approved reversal trigger
+already recorded above ("weak gate report → revert... without further
+discussion") — this outcome (no gate report at all, twice) meets that bar
+more clearly than the trigger's original wording anticipated. Reported to
+advisor and the user; T08 proceeds now with `coder` as implementer.
+
+## 2026-09-02 — T08 pass-2 completion misrouted to top-level session, not the runner
+
+Considered: (a) accept runner-t08's gate report as written (pass 2 "did not
+return", gate closed on pass-1 + runner's own re-verification only), (b)
+correct the record once the actual pass-2 output surfaced.
+Chosen: (b). The pass-2 reviewer (`ask_opus`, same agent, resumed via
+`SendMessage`) did complete — its finished output landed in the top-level
+coordinator's session, not runner-t08's, so runner-t08 genuinely never saw
+it and wasn't wrong to treat it as non-responsive from where it sat. Verdict
+received directly: fresh scan clean, all 9 acceptance criteria pass, fmt fix
+confirmed as the only change, one deferred stale-comment note carried
+forward, conformance yes. Runner-t08 asked to append a correction to
+`gates/T08-report.md` rather than leave the "reviewer never returned" framing
+standing, since that's not what happened.
+Why: this is the same misrouting pattern the opencode-dispatch trial
+surfaced earlier this run (a completion notification for a subagent spawned
+by a sub-agent arrived at the top-level session instead), now confirmed for
+a second, different transport — nested Agent-tool subagent completions via
+`SendMessage`-resume, not just MCP dispatch callbacks. Two independent
+transports, same failure shape: completion visibility follows the process
+tree the harness tracks, not the logical spawner.
+Limitations: only observed twice, both times with the top-level coordinator
+as the wrong recipient; whether it's deterministic (always routes to the
+root) or occasionally correct is unknown — no fix attempted, this is a
+record of the behavior, not a mitigation.
+Reversal: any runner in this run (or a future one) waiting on a nested
+subagent's response should ping the conductor if the wait looks anomalously
+long relative to a comparable prior turn (as runner-t08 correctly did here)
+rather than conclude non-response on elapsed time alone — the conductor may
+be holding the answer already. Revisit if this recurs a third time; at that
+point it's not a one-off routing quirk, it's a property of the harness worth
+raising outside this run.
+Sign-off: conductor decision, record-accuracy correction — no scope or
+binding change, T08's actual result (conformance yes, zero new pass-2
+findings) is unchanged and was never in doubt once the real output was in
+hand.
