@@ -182,3 +182,36 @@ or implementer actually found and judged real.
   in the `NamingClaimMap` (making this fallback path dead code in practice)
   or whether the fallback is the accepted permanent v1 behavior — this
   needs an explicit call, not a default assumption either way.
+
+  **Resolved by T12**: the main loop now calls T10's claim for every live
+  session T09 reports, top-level and subagent alike (`shell/live.rs`), so
+  this fallback path is dead code in practice for any session the wiring
+  actually sees — proven by a test where a subagent fixture ends up with a
+  real claimed nickname, not the id fallback. See the new "T12" heading
+  below.
+
+## T12 — Interactive shell: main loop, window controls, keyboard nav
+
+- **SIGTERM/`kill -TERM` does not run the Drop-based terminal-restore
+  guard.** Rust destructors do not run on raw signal delivery by default —
+  only on normal unwinding (including a caught panic) or ordinary process
+  exit. `R2`'s prose names "on kill" as a restore trigger, but AC2's four
+  enumerated exit paths (normal exit, `q`/`Esc`-triggered quit, Ctrl-C, and
+  a forced panic) do not include a raw `SIGTERM`, and all four are proven by
+  test (`shell/terminal.rs`, `shell/app.rs`, `shell/keys.rs`). Self-flagged
+  by the implementer; reviewer (`ask_opus`) formed an independent view and
+  concurred this is correctly scoped as a deferral rather than a
+  release-bar finding, since AC2 is exhaustively specific about which paths
+  it requires and Ctrl-C already covers the ordinary interactive "stop this"
+  case a user reaches for. Assumption: an interactive user reaches for
+  Ctrl-C, not `kill -TERM`, to stop a foreground TUI; scripted/supervisor
+  shutdown via SIGTERM is not part of this release's supported workflows.
+  Consequence if wrong: a `kill -TERM`'d `dashboard` process can leave the
+  terminal in raw mode / the alternate screen, a real user-visible break of
+  the same class R2 exists to prevent, just via a path AC2 doesn't cover.
+  Trigger: this project adopts a supervised/scripted lifecycle for
+  `dashboard` (e.g. run under a process manager that sends SIGTERM), or a
+  user reports a terminal left in a broken state after killing the process
+  by PID/signal rather than Ctrl-C. Promotion: add a signal handler (e.g.
+  via `signal_hook` or raw `libc`) that runs the same restore path as the
+  panic guard, then add a test exercising it.

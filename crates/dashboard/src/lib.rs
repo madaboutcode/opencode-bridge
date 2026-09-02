@@ -8,14 +8,17 @@
 //! (`visuals.md` R6.8) — also harness-agnostic, pure logic, consuming only
 //! `snapshot`'s types. `mosaic` (T11) is the layout/render pipeline — also
 //! harness-agnostic, consuming only `snapshot`'s and `naming`'s public
-//! types. The main event loop (T12) lands in a later module this file
-//! will grow to include.
+//! types. `shell` (T12) is the main event loop, terminal lifecycle, and
+//! keyboard-interaction layer — it wires the above together via their
+//! public interfaces only; `main.rs` is a thin binary entry point on top
+//! of `shell::run`.
 
 pub mod adapter;
 pub mod mosaic;
 pub mod naming;
 pub mod opencode;
 pub mod project_identity;
+pub mod shell;
 pub mod snapshot;
 
 pub use adapter::{HarnessAdapter, SessionEvent};
