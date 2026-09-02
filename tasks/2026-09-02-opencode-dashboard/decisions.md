@@ -143,3 +143,48 @@ consumer that expects the canonical template (e.g. `greybeard`'s QA agents,
 per the earlier "skip glossary.md/interfaces/" decision above), revisit
 whether the convention itself should conform instead of the validator being
 reinterpreted around it.
+
+## 2026-09-02 — M2 milestone sign-off: R1.4/R6.8 state-ownership fix + claim-order pinning
+
+Considered: at M2's milestone review, advisor found `client.md` R1.4
+("core never holds derived state between frames") directly contradicts
+`visuals.md` R6.8 (a live claim-map + cooldown counters that must persist
+across frames) — a real integration gap T07's cross-link pass didn't catch.
+Two resolution directions existed: narrow R6.8 to fit R1.4 (make the core
+genuinely snapshot-only, push naming state elsewhere), or amend R1.4 to
+carve out an exception for identity-keyed state.
+Chosen: amend R1.4. Advisor's argument: no adapter can see across projects,
+and cross-project category exclusivity (one of R6.8's two hard guarantees)
+requires exactly that visibility — so the state has to live at the core,
+which means R1.4's rule was mis-scoped (it should govern snapshot *content*,
+not all cross-frame state), not R6.8.
+Also fixed in the same pass: R6.8's claim *order* was never pinned (only
+probe order was) — on a batched discovery (dashboard startup), the same
+live session set could produce different names run-to-run depending on
+wire-arrival order. Fixed by resolving batched claims in ascending
+creation-time order. Also stripped R6.8's over-specific mechanism notation
+(literal hash-mod formulas, two named counters, a wordlists filename
+convention) that violated this project's own `docs/specs/CLAUDE.md`
+consumer-lens rule, while keeping the guarantees and the new claim-order
+rule exactly as specific as before.
+Why: both edits are small, targeted text changes to existing requirements,
+not new design — advisor explicitly said no new task/loop pass was needed,
+just the diffs shown for sign-off.
+Limitations: cooldown state itself doesn't survive a dashboard restart — a
+narrow case remains where a session pushed off its preferred word by
+cooldown right before a restart can reclaim it after, since cooldown
+history is gone. R6.8's claim-order fix doesn't cover this case; not fixed
+in M2, recorded in `gates/M2-outcome.md` for M3 to handle (record as known
+behavior, or soften the restart-reproducibility claim).
+Reversal: if M3's claim-map implementation finds the restart-reproducibility
+gap above actually matters in practice (e.g. cooldown windows turn out to be
+long relative to how often the dashboard restarts), revisit whether cooldown
+state needs to persist across restarts after all.
+Sign-off: advisor, unconditional after these fixes — read both files
+directly, confirmed the exception properly scopes the rule and names an
+owner, confirmed the claim-order fix correctly derives a project's position
+from its earliest live session (a case advisor flagged as non-obvious and
+got resolved correctly), and confirmed "hash" as a general term (not a
+formula) is the right line to draw given the Reversal section's
+birthday-paradox reasoning depends on the reader knowing the scheme is
+content-derived and scattered.

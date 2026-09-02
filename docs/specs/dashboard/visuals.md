@@ -176,44 +176,66 @@ action is `client.md`'s domain (R6.5).
   adjective+noun pairing, one plain word per card. This reverses an earlier
   scheme; see "Reversal," below.
 
-  **Two-layer claim scheme.** Both layers work the same way: prefer a
-  hash-derived slot, and if that slot is taken, move deterministically
-  (never randomly) to another one.
+  **Where this state lives.** The claim state behind this scheme — which
+  category each live project holds, which word each live session holds, and
+  the cooldown bookkeeping — is core-owned state, not something an adapter
+  or this file computes independently: see `client.md` R1.4's explicit
+  exception for identity-keyed allocation state (forward reference). It has
+  to live at the core because cross-project category exclusivity (the
+  second guarantee below) needs visibility across every live project at
+  once, which no single adapter has. This section specifies the scheme's
+  observable behavior and guarantees; the exact data structures are M3's
+  choice, not specified here.
+
+  **Two-layer claim scheme.** Both layers work the same way: each entity
+  deterministically prefers one slot, and if that slot is taken, resolves
+  deterministically (never randomly) to another one.
 
   1. **Project → category.** Each currently-live project (a project with at
      least one live session) claims exactly one category, exclusively, for
      as long as it has at least one live session.
-     - Preferred category = `hash(project identity) mod (number of
-       categories)`. Project identity is `client.md` R1.6's definition
-       (forward reference): canonical git-repository toplevel path, or the
-       working directory itself if there's no repo.
+     - Each project deterministically prefers one category, derived from
+       its project identity (`client.md` R1.6, forward reference: canonical
+       git-repository toplevel path, or the working directory itself if
+       there's no repo) — the same project identity always prefers the
+       same category.
      - If the preferred category is already claimed by a different
-       currently-live project, scan forward in a fixed, deterministic order
-       (e.g. next category index, wrapping around) to the next unclaimed
-       one.
+       currently-live project, resolution moves to another unclaimed
+       category by a fixed rule, never by chance.
      - Released when the project has no live sessions left.
 
   2. **Session → word.** Within its project's claimed category, each
      session claims exactly one word (its "seat").
-     - Preferred word = `hash(harness kind, harness-native session id) mod
-       (word count in that category)` — the same session-identity pair
-       defined in `client.md` R1.5 (forward reference). The hash scatters
-       picks across the whole category list rather than walking it in
-       order (`word[0]`, `word[1]`, ...), so real usage doesn't keep
-       landing on the same first couple of names for every project.
+     - Each session deterministically prefers one word within its
+       project's category, derived from the session-identity pair defined
+       in `client.md` R1.5 (forward reference) — scattered across the
+       whole category list rather than always starting from the first
+       word, so real usage doesn't keep landing on the same couple of
+       names for every project.
      - If the preferred word is already held by a live sibling session in
-       the same project, or is in cooldown (below), probe forward using a
-       second, deterministic hash-derived stride (not true randomness)
-       until landing on a word that is both free and off cooldown.
+       the same project, or is in cooldown (below), resolution moves
+       deterministically to another word that is both free and off
+       cooldown.
+
+  **Claim order is pinned, not incidental.** When more than one project (or
+  more than one session within a project) is discovered at the same time —
+  most commonly at dashboard startup, when an adapter's initial reconcile
+  can report many live entities in one batch — claims are resolved in
+  ascending order of when each entity was actually *created* (a project's
+  position is its earliest live session's creation time; a session's
+  position is its own creation time), never the order they happened to
+  arrive over the wire (REST pagination order, SSE delivery order, etc.).
+  Without this, the same live set of sessions could produce different names
+  across two dashboard restarts depending on transport-level arrival order —
+  that's observable, restart-visible behavior, not an implementation detail,
+  so it has to be pinned here rather than left to whichever order M3's
+  adapter happens to deliver things in.
 
   **Recycling (cooldown).** When a session ends, its word does not return
-  to the available pool immediately. It enters cooldown: it isn't claimable
-  again until enough *other* distinct words in that category have been
-  claimed since it was freed (tracked as a small per-word "last freed"
-  counter compared against a per-category "claims made since" counter —
-  bounded state, no full history log kept). This exists so a name doesn't
-  start pointing at a different session moments after the session that
-  used to hold it ends.
+  to the available pool immediately — enough *other* distinct words in that
+  category must be claimed first. This exists so a name doesn't start
+  pointing at a different session moments after the session that used to
+  hold it ends.
 
   **Guarantees — both hard, not just low-probability:**
   - No two sessions in the same live project ever show the same name.
@@ -271,14 +293,12 @@ action is `client.md`'s domain (R6.5).
   behavior isn't decided.
 
   **Word lists.** 10 categories are curated and frozen as of 2026-09-02
-  (full content in the Appendix below). Each category is meant to become
-  its own file (`wordlists/<category>.txt` or equivalent) once M3 scaffolds
-  the dashboard crate — the Appendix holds all ten together here only until
-  that happens, per this requirement's "one category per file" rule. Both
-  the category list and each category's own word list are frozen once
-  approved: changing either after V1 ships reshuffles who holds which seat,
-  because both claim layers depend on list order and length through the
-  hash-mod-count math above.
+  (full content in the Appendix below). Each category is content-managed
+  separately from the others once M3 scaffolds the dashboard crate — the
+  Appendix holds all ten together here only until that happens. Both the
+  category list and each category's own word list are frozen once approved:
+  changing either after V1 ships reshuffles who holds which seat, since both
+  claim layers are sensitive to each list's order and length.
 
   **Placement.** Where the nickname appears on the card is a consequence of
   R6.2's chrome outcome, not an independent choice: if R6.2 settles on
@@ -309,10 +329,9 @@ action is `client.md`'s domain (R6.5).
 ## Appendix — R6.8 word lists (frozen, 2026-09-02)
 
 Copied verbatim from the requirements doc. 10 categories, ≤10 chars/word,
-no word repeated across categories. Held here as one file until M3
-scaffolds the dashboard crate and promotes each list to its own file
-(`wordlists/<category>.txt` or equivalent), per R6.8's "one category per
-file" rule above.
+no word repeated across categories. Held here together until M3 scaffolds
+the dashboard crate and manages each category's content separately, per
+R6.8's word-list rule above.
 
 - **Greek myth:** Zeus, Hera, Apollo, Athena, Hermes, Ares, Artemis, Hades, Persephone, Poseidon, Demeter, Dionysus, Hestia, Nemesis
 - **Norse myth:** Odin, Thor, Loki, Freya, Baldur, Heimdall, Frigg, Tyr, Skadi, Njord

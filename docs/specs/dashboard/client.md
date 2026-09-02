@@ -93,8 +93,24 @@ final on-screen form.
   R1.5) or an explicit "session gone" message, all on one shared channel. The
   core stores only the latest snapshot per key, bucketed by project (R1.6),
   and recomputes layout every frame from current snapshots — it never patches
-  a snapshot incrementally or holds derived state between frames (consistent
-  with `layout.md`'s "no caching, no stability logic" behaviour, R5.4/R5.7).
+  a snapshot incrementally or holds state derived *from snapshot content*
+  between frames (consistent with `layout.md`'s "no caching, no stability
+  logic" behaviour, R5.4/R5.7).
+
+  **Exception: identity-keyed allocation state.** This rule is about session
+  *content* — the core must not accumulate or infer anything about a session
+  beyond what its latest snapshot says. It does not prohibit small state
+  keyed by identity rather than derived from content: the naming claim-map
+  (`visuals.md` R6.8, forward reference) — which category each live project
+  holds, which word each live session holds, and the cooldown bookkeeping
+  behind it — is exactly this kind of state, and it lives here, at the core,
+  not inside any adapter. It has to: cross-project category exclusivity
+  (R6.8's second guarantee) requires visibility across every live project at
+  once, which no single adapter has. `visuals.md` R6.8 defines the claim
+  scheme's guarantees; this file owns the claim-map's lifecycle — created on
+  a project's/session's first claim, released per R1.7's eventual staleness
+  rule (forward reference), same as a snapshot would be.
+
   Exact snapshot field contents (title, status, current
   action text, etc.) are specified where they're rendered — `visuals.md`
   R6.3/R6.7/R6.8, `layout.md` R5.2/R5.3 — this file only specifies the
