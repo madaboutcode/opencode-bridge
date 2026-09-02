@@ -25,6 +25,14 @@ pub struct SessionTime {
     pub idle: Option<i64>,
 }
 
+/// `location` on a session response (SPEC §1). Only `directory` is modeled —
+/// it's the one field the dashboard's project-identity resolver reads
+/// (`client.md` R1.6); nothing else on this object is used anywhere yet.
+#[derive(Debug, Clone, Deserialize)]
+pub struct SessionLocation {
+    pub directory: String,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct SessionInfo {
     pub id: String,
@@ -35,6 +43,40 @@ pub struct SessionInfo {
     pub tokens: Value,
     #[serde(default)]
     pub title: Option<String>,
+    // --- Additive fields below, added for the dashboard adapter (T09).
+    // opencode sends all four on every session response; the bridge simply
+    // never had a reason to read them before. `#[serde(default)]` on each
+    // means a session response missing any of them (or the bridge's own
+    // test fixtures, which don't set them) still deserializes exactly as
+    // before — this is a pure addition, not a reshape (see
+    // `docs/specs/dashboard/client.md`, "Known implementation gap").
+    /// The session's working directory. Source for the dashboard's project
+    /// identity resolution (`client.md` R1.6) — never `projectID` below,
+    /// which collides every non-git directory into opencode's own
+    /// `"global"` bucket (confirmed by the T01 spike,
+    /// `tmp/2026-09-02-project-identity-spike/EVIDENCE.md`).
+    #[serde(default)]
+    pub location: Option<SessionLocation>,
+    /// opencode's own internal project id (a 40-char hex hash per git repo,
+    /// or the literal string `"global"` for any non-git directory). Kept
+    /// for completeness/future adapters; the dashboard's project identity
+    /// deliberately does not read this field — see `location` above.
+    #[serde(default, rename = "projectID")]
+    pub project_id: Option<String>,
+    /// Project-relative path of `location.directory`, when opencode
+    /// computes one. Not used by project-identity resolution (which reads
+    /// `location.directory` directly); kept for parity with the wire shape.
+    #[serde(default)]
+    pub subpath: Option<String>,
+    /// Set when this session is a subagent delegation: the parent session's
+    /// native id. Not part of the "Extending SessionInfo" list in the T09
+    /// contract (which named only `location`/`projectID`/`subpath`), but
+    /// required by the same contract's session-snapshot shape ("parentID —
+    /// subagent sessions point at their parent") and confirmed on the wire
+    /// by the T01 spike's check 3. Added here for the same reason and under
+    /// the same additive-only rule as the other three fields.
+    #[serde(default, rename = "parentID")]
+    pub parent_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]

@@ -51,3 +51,62 @@ or implementer actually found and judged real.
   needs `opencode-client` published independently (e.g. for `crates/dashboard`
   or a third consumer to depend on it via crates.io rather than a path/git
   dependency).
+
+## T09 — HarnessAdapter boundary, core session model, opencode adapter
+
+- Several fallback constructs inside the opencode adapter (behind the
+  boundary, not on the release-bar surface) lack a `code-quality`-style
+  `FALLBACK-OK:` citation: `opencode/action_line.rs:62,66`,
+  `opencode/reconcile.rs:59,104,111`, `opencode/mod.rs:190,228`. Found by the
+  reviewer (`ask_opus`). The one with a visible downstream effect is
+  `reconcile.rs:59` — if a session ever arrived with no `location` at all
+  (T01's spike found this doesn't happen on real wire traffic), the resolver
+  would key a project identity off an empty path, producing a phantom
+  project box. Assumption: `location` is always present on real opencode
+  sessions. Consequence: degraded display of one session, never corruption
+  of another. Trigger: any of these fallbacks producing a visible rendering
+  bug (empty action line, phantom empty-path project box) — add citations
+  and tighten handling at that point.
+- `TrackedSession::start_turn` (`opencode/session_state.rs:61-64`) clears
+  `files_touched` on a new turn but not `current_action` — a session's
+  action line from the previous turn's last tool call persists into the new
+  `Running` snapshot until the first tool call of the new turn overwrites
+  it. Found by the reviewer. Assumption: this window is a few seconds at
+  most (until the first tool call lands) and self-corrects. Consequence: a
+  momentarily stale action line at the start of a turn. Trigger: reported as
+  visually confusing in real use — clear `current_action` in `start_turn`.
+- R6.5's edit-action fallback ("full relative path if it fits") is not
+  implemented anywhere — the opencode adapter always renders `basename`
+  only, on the reasoning that "if it fits" is a tile-width (render-time,
+  T11) quantity the adapter can't evaluate. Self-flagged by the implementer.
+  Assumption: T11's render layer either doesn't need this fallback or will
+  need to build its own width-aware truncation/fallback logic independently,
+  since nothing in T09's snapshot carries enough information (the full
+  relative path) to reconstruct it if T11 only receives the basename.
+  Actually: the adapter renders `"editing: " + basename`, a single string —
+  T11 has no separate access to the full relative path if the basename
+  string doesn't fit. Consequence: R6.5's fallback behavior is silently
+  unreachable in the current design. Trigger: T11's implementer or reviewer
+  should check whether this gap needs the full relative path to reach the
+  snapshot (a straightforward additive field) before T11 gates.
+- `crates/dashboard`'s opencode adapter calls `GET /api/session` as a single
+  unpaginated page — `opencode_client::Client::list_sessions` doesn't loop
+  pages. Self-flagged by the implementer. Assumption: fine at the spec's
+  confirmed ~8-session design center (R5.8); the existing "50+ session
+  overflow" deferral in the delivery profile already covers stress scale
+  more broadly. Consequence: sessions beyond one page silently never appear
+  in the dashboard at real stress scale. Trigger: same as the profile's
+  existing 50+ session deferral — the user reports missing/incomplete
+  session lists, or routinely runs enough sessions to plausibly exceed one
+  page.
+- `AttentionState::Running`'s `turn_started` timestamp is set from the
+  adapter's own observation of `session.execution.started` over SSE; when
+  the reconcile sweep is what first discovers a running session (e.g. the
+  dashboard starts up mid-turn, or SSE was down when the turn actually
+  started), there is no wire field carrying true turn-start time, so it
+  falls back to `last_updated`. Self-flagged by the implementer. Assumption:
+  this only affects the "running for Nm" elapsed-time display, only at
+  adapter/dashboard startup or after an SSE outage, and self-corrects at the
+  next turn boundary. Consequence: an understated "running for" duration in
+  that narrow window. Trigger: reported as a visibly wrong elapsed time in
+  real use.

@@ -8,3 +8,5 @@ publish = false
 
 [dependencies]
 opencode-client = { path = "../opencode-client" }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+serde_json = "1"

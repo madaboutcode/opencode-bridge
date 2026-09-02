@@ -79,6 +79,8 @@ name = "dashboard"
 version = "0.1.0"
 dependencies = [
  "opencode-client",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]

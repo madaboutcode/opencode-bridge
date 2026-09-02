@@ -14,7 +14,7 @@ pub use error::Result;
 pub use opencode::{
     latest_assistant_error, latest_assistant_text, resolve_bin, AgentInfo, AgentModel, Client,
     Creds, FinalTurn, Message, MessageError, MessagePart, MessageTime, ModelInfo, ModelRef,
-    SessionInfo, SessionTime,
+    SessionInfo, SessionLocation, SessionTime,
 };
 
 // `pair` shadows nothing at the crate root but is re-exported separately
