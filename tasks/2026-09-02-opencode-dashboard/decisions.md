@@ -323,3 +323,38 @@ Sign-off: conductor decision, record-accuracy correction — no scope or
 binding change, T08's actual result (conformance yes, zero new pass-2
 findings) is unchanged and was never in doubt once the real output was in
 hand.
+
+## 2026-09-02 — M3 remainder decomposed: T09-T12, straight pipeline
+
+Considered: fan out any pair of T09-T12 (naming/claim-map and Mosaic
+render both looked plausibly independent of each other) vs. a straight
+pipeline with no fan-out.
+Chosen: straight pipeline — T09 (`HarnessAdapter` boundary + core
+session/project model + opencode adapter) → T10 (R6.8 naming/claim-map) →
+T11 (Mosaic layout/render, promoted from the verified spike) → T12
+(interactive shell: main loop, terminal lifecycle, window controls,
+keyboard nav minus zoom). T09 bundles the boundary trait with its one
+implementation rather than splitting them into separate tasks.
+Why: T10 and T11 both consume types T09 defines (session/project identity,
+creation time, tombstone signal, snapshot content fields); parallelizing
+either against a guessed shape of those types risked the same kind of
+integration gap the advisor caught between `client.md` R1.4 and
+`visuals.md` R6.8 at M2 sign-off. On T09's internal shape: advisor's
+review — the trait and its only implementation are co-designed by
+necessity (you can't verify the boundary is right without an adapter that
+implements it), so splitting would create an artificial seam and risk the
+same integration-gap failure mode the pipeline choice is meant to avoid.
+Limitations: this is a 4-task, single-threaded critical path through the
+rest of M3 — no wall-clock parallelism available until T09 gates. If T09
+runs long, nothing else in M3 can start.
+Reversal: if a later resume finds T10's or T11's actual shape needs were
+smaller/more stable than expected once T09 is built, a future run could
+still choose to fan out remaining work differently — this decision governs
+this run's four sealed contracts, not a permanent constraint on how
+dashboard work must always be sequenced.
+Sign-off: advisor, contingent on two contract fixes applied before
+sealing — T09 (v2): named a dedicated last-updated timestamp field for
+R3's window filter, distinct from the per-state elapsed-time basis. T12
+(v2): added AC 9, tombstone-to-claim-release wiring (T09's tombstone →
+T10's release), the one place those two signals meet at runtime. Both
+fixes applied; advisor confirming Review Frames hold at v2.

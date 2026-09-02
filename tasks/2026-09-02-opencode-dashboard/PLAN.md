@@ -129,3 +129,25 @@ artifacts, then implements the dashboard once specs exist. Concrete, in order:
 - T05: write `visuals.md`. (fans out with T03/T04/T06, depends on T02)
 - T06: write `interactions.md`. (fans out with T03/T04/T05, depends on T02)
 - T07: cross-link pass across all five files + update `README.md` index + spawn the mandatory `writing-specs` validation agent per file, fix what it flags. (depends on T02-T06 all gated)
+
+### M3 — dashboard implementation
+- T08: Cargo workspace migration. **Gated `ac6962b` (+ corrections `aa87c2f`, `df8077a`).**
+- T09: `HarnessAdapter` boundary, core session/project model, opencode
+  adapter (R1.3 full, R1.4-R1.8 mechanism, R4, R6.4-R6.6). Pipeline stage 1
+  — nothing else in M3's remainder can start before it; it fixes the
+  session/project identity and snapshot shape everything downstream reads.
+  (depends on T08)
+- T10: naming/claim-map (R6.8) — two-layer claim scheme, pure logic module.
+  (depends on T09 for identity types, creation time, tombstone signal)
+- T11: Mosaic layout + card rendering, promoted from the verified spike at
+  `tmp/20260901-prototype-dashboard-layout/` into `crates/dashboard` (R5
+  series, R6/R6.1/R6.2/R6.7, R9 series). (depends on T09, T10)
+- T12: interactive shell — main loop, terminal lifecycle (R2), window
+  controls (R3/R8), keyboard navigation minus zoom (R7.1 subset, Amendment
+  3), footer. Last task of M3; produces the real running `dashboard` binary.
+  (depends on T09, T10, T11)
+
+Straight pipeline, no fan-out: T10's claim-map and T11's render both consume
+types T09 defines, and building either in parallel against a guessed shape
+of those types risks the same kind of integration gap M2's R1.4/R6.8
+contradiction was — sequenced instead.
