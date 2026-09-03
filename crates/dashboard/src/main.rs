@@ -129,7 +129,12 @@ fn start_claude_listener(
     sink: tokio::sync::mpsc::UnboundedSender<dashboard::SessionEvent>,
     handles: &mut Vec<tokio::task::JoinHandle<()>>,
 ) -> Result<(), dashboard::claude::listener::ListenerError> {
-    let listener = dashboard::claude::listener::ClaudeListener::bind()?;
+    // Tokio's UnixListener::bind registers the socket with the runtime, so
+    // enter the runtime before binding during synchronous main startup.
+    let listener = {
+        let _entered = rt.enter();
+        dashboard::claude::listener::ClaudeListener::bind()?
+    };
     let (claude_tx, claude_adapter) = dashboard::claude::ClaudeAdapter::channel();
     // Both `run` calls spawn background tasks, which needs an active runtime
     // context on this thread; `rt.enter()` provides it for this block.
