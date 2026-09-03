@@ -1,0 +1,36 @@
+ ◆ opencode  · 8 sessions · ? 2 · ● 1 · ◐ 4 · ○ 1                     10m ● live
+ web-dashboard  3                        ? 1  ◐ 2  mobile-app  2       ● 1  ◐ 1 
+ ? brave-otter                      ◐ 11m          ● quartz-badger              
+  question · 9m                     extraordin…    Update app icon assets       
+                                                   needs-you · 1m               
+ ⋯                                                                              
+ delete?                                                                        
+                                                                                
+                                                   ◐ sable-heron                
+                                                   editing:                     
+ ◐ amber-falcon                                    NotificationManager.swift    
+ editing: requirements.md                          running · 6m · 8 calls       
+ running · 3m · 11 calls                           ↳ pebble-owl editing: Tok…   
+ ↳ cinder-wisp editing: render.rs                  ↳ misty-vole running: xco…   
+                                                   ↳ ashen-crane reviewing: …   
+ Reviewing opencode dashboard                                                   
+ requirements doc for session…                     Fix push notification        
+                                                   token refresh                
+ files: requirements.md,                                                        
+ render.rs, layout-brainstorm.md                   files:                       
+                                                   NotificationManager.swift…   
+                                                   subagent: 3 started          
+ infra-tools  2                          ? 1  ○ 1                               
+ ? golden-hawk                                                                  
+  question · 6m                                    scratch-cli  1           ◐ 1 
+                                                   ◐ violet-otter               
+ ⋯                                                 shell: cargo bench           
+                                                   running · 45s · 6 calls      
+ you: tear down staging, we're rebuilding it                                    
+ from the new module                               Prototype a faster arg       
+                                                   parser                       
+                                                   shell: cargo build --rele…   
+                                                   shell: cargo bench -- --w…   
+○ hawk-otter · 51m                                                              
+                                                                                
+q quit  w 80col  f fixture  +/- session  p project  . tick                      

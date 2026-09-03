@@ -10,6 +10,27 @@ use std::process::ExitCode;
 
 use dashboard::{HarnessAdapter, OpencodeAdapter};
 
+/// Icon mode: `--icons=plain` (or env `DASHBOARD_ICONS=plain`) opts out of
+/// Nerd Font glyphs for terminals without a patched font. Nerd Font is the
+/// default — most terminal setups that run a dashboard like this already
+/// carry one (tmux/starship/lazygit users overwhelmingly do), and the
+/// plain fallback exists for the terminals that don't rather than the
+/// other way around. A CLI flag beats trying to auto-detect font support:
+/// there's no reliable terminal-side signal for "this font is patched,"
+/// so guessing would silently show tofu boxes instead of failing loud.
+fn resolve_icon_mode() -> dashboard::mosaic::palette::IconMode {
+    use dashboard::mosaic::palette::IconMode;
+    let from_flag = std::env::args().any(|a| a == "--icons=plain" || a == "--no-nerd-font");
+    let from_env = std::env::var("DASHBOARD_ICONS")
+        .map(|v| v.eq_ignore_ascii_case("plain"))
+        .unwrap_or(false);
+    if from_flag || from_env {
+        IconMode::Plain
+    } else {
+        IconMode::Nerd
+    }
+}
+
 fn main() -> ExitCode {
     // T04: the exact first argument `claude-hook` selects the hook helper
     // before icon-mode resolution, OpenCode pairing, or any TUI startup.
@@ -17,6 +38,8 @@ fn main() -> ExitCode {
     if is_claude_hook_command() {
         return dashboard::claude::command::ClaudeHookCommand::run();
     }
+
+    dashboard::mosaic::palette::set_icon_mode(resolve_icon_mode());
 
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()

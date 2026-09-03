@@ -326,10 +326,16 @@ fn draw_tag_row(
     }
     let mut segs: Vec<(String, Color)> = vec![];
     if q > 0 {
-        segs.push((format!("? {q}"), palette::STATUS_QUESTION));
+        segs.push((
+            format!("{} {q}", palette::state_glyph(State::Question, tick)),
+            palette::STATUS_QUESTION,
+        ));
     }
     if need > 0 {
-        segs.push((format!("● {need}"), palette::STATUS_NEEDS_YOU));
+        segs.push((
+            format!("{} {need}", palette::state_glyph(State::NeedsYou, tick)),
+            palette::STATUS_NEEDS_YOU,
+        ));
     }
     if run > 0 {
         segs.push((
@@ -338,7 +344,10 @@ fn draw_tag_row(
         ));
     }
     if idle > 0 {
-        segs.push((format!("○ {idle}"), palette::STATUS_IDLE));
+        segs.push((
+            format!("{} {idle}", palette::state_glyph(State::Idle, tick)),
+            palette::STATUS_IDLE,
+        ));
     }
     if segs.is_empty() {
         return false;
@@ -398,7 +407,12 @@ fn draw_bottom_row(
     let mut placed = 0usize;
     for &idx in idle_sorted {
         let s = &project.sessions[idx];
-        let chip = format!("○ {} · {}", s.nick, s.age);
+        let chip = format!(
+            "{} {} · {}",
+            palette::state_glyph(State::Idle, 0), // tick unused for Idle
+            s.nick,
+            s.age
+        );
         let clen = chip.chars().count();
         let add = if placed == 0 { clen } else { clen + 2 };
         if used + add > avail {
@@ -564,7 +578,7 @@ fn draw_header(f: &mut Frame, rect: Rect, hc: &HeaderCounts, tick: usize) {
     }
     let wide = rect.width >= 100;
     let mut left: Vec<Span<'static>> = vec![Span::styled(
-        " ◆ opencode ",
+        format!(" {} opencode ", palette::header_glyph()),
         Style::new()
             .fg(palette::STATUS_RUNNING)
             .add_modifier(Modifier::BOLD),
@@ -584,7 +598,7 @@ fn draw_header(f: &mut Frame, rect: Rect, hc: &HeaderCounts, tick: usize) {
     if hc.q > 0 {
         left.push(Span::raw(" · "));
         left.push(Span::styled(
-            format!("? {}", hc.q),
+            format!("{} {}", palette::state_glyph(State::Question, tick), hc.q),
             Style::new()
                 .fg(palette::STATUS_QUESTION)
                 .add_modifier(Modifier::BOLD),
@@ -593,7 +607,11 @@ fn draw_header(f: &mut Frame, rect: Rect, hc: &HeaderCounts, tick: usize) {
     if hc.need > 0 {
         left.push(Span::raw(" · "));
         left.push(Span::styled(
-            format!("● {}", hc.need),
+            format!(
+                "{} {}",
+                palette::state_glyph(State::NeedsYou, tick),
+                hc.need
+            ),
             Style::new()
                 .fg(palette::STATUS_NEEDS_YOU)
                 .add_modifier(Modifier::BOLD),
@@ -611,7 +629,7 @@ fn draw_header(f: &mut Frame, rect: Rect, hc: &HeaderCounts, tick: usize) {
     if hc.idle > 0 {
         left.push(Span::raw(" · "));
         left.push(Span::styled(
-            format!("○ {}", hc.idle),
+            format!("{} {}", palette::state_glyph(State::Idle, tick), hc.idle),
             Style::new()
                 .fg(palette::TEXT_DIM)
                 .add_modifier(Modifier::BOLD),

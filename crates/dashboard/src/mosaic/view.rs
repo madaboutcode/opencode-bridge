@@ -30,6 +30,13 @@ pub enum State {
 pub struct SubagentView {
     pub nick: String,
     pub action: String,
+    /// Same 4-state model as a top-level `SessionView` — a subagent is
+    /// itself a full session (`client.md` R1.5) and carries its own
+    /// `AttentionState`. Rendered as a per-line glyph/color in
+    /// `ladder.rs::subagent_line`, and used here to priority-sort the
+    /// list (`build_projects`'s subagent-mapping step) so a `Question`
+    /// subagent buried behind three `Running` ones isn't missed.
+    pub state: State,
 }
 
 /// One top-level session, ready for the layout/ladder/render modules.
@@ -129,13 +136,13 @@ fn project_display_name(id: &ProjectId) -> String {
         .unwrap_or_else(|| id.as_path().to_string_lossy().into_owned())
 }
 
-fn session_view(
-    snap: &SessionSnapshot,
-    naming: &NamingClaimMap,
-    now: Timestamp,
-    subs: Vec<SubagentView>,
-) -> SessionView {
-    let (state, basis, wait_m) = match snap.attention {
+/// Turns any session's wire attention into the 4-state render model, the
+/// elapsed-time basis timestamp, and (for `NeedsYou`/`Question` only) whole
+/// minutes waited. Shared by top-level sessions and subagents alike — a
+/// subagent's `SessionSnapshot` carries the same `AttentionState` shape
+/// (`client.md` R1.5: a subagent is an ordinary session).
+fn resolve_state(attention: AttentionState, now: Timestamp) -> (State, Timestamp, Option<u32>) {
+    match attention {
         AttentionState::Running { turn_started } => (State::Running, turn_started, None),
         AttentionState::NeedsYou {
             question,
@@ -150,7 +157,29 @@ fn session_view(
             (state, turn_ended, Some(minutes))
         }
         AttentionState::Idle { last_update } => (State::Idle, last_update, None),
-    };
+    }
+}
+
+/// Lower sorts first: `Question` (most urgent) through `Idle` (least).
+/// Used only to order a project's subagent list by how much it needs a
+/// human's attention — never to order top-level sessions, which follow
+/// `layout.md` R5.6's own priority rule elsewhere.
+fn state_urgency(state: State) -> u8 {
+    match state {
+        State::Question => 0,
+        State::NeedsYou => 1,
+        State::Running => 2,
+        State::Idle => 3,
+    }
+}
+
+fn session_view(
+    snap: &SessionSnapshot,
+    naming: &NamingClaimMap,
+    now: Timestamp,
+    subs: Vec<SubagentView>,
+) -> SessionView {
+    let (state, basis, wait_m) = resolve_state(snap.attention, now);
 
     SessionView {
         session_id: snap.session_id.clone(),
@@ -204,12 +233,24 @@ pub fn build_projects(
         let subs = children
             .get(&s.session_id)
             .map(|kids| {
-                kids.iter()
-                    .map(|k| SubagentView {
-                        nick: nickname_or_fallback(naming, &k.session_id),
-                        action: k.current_action.clone().unwrap_or_default(),
+                let mut views: Vec<SubagentView> = kids
+                    .iter()
+                    .map(|k| {
+                        let (state, _, _) = resolve_state(k.attention, now);
+                        SubagentView {
+                            nick: nickname_or_fallback(naming, &k.session_id),
+                            action: k.current_action.clone().unwrap_or_default(),
+                            state,
+                        }
                     })
-                    .collect()
+                    .collect();
+                // Stable sort: ties (same state) keep spawn order, since
+                // `kids` was built by a single pass over `sessions` in its
+                // given order. Most-urgent-first so a lone Question isn't
+                // buried below several Running lines when tile height only
+                // has room to show the top one or two (`ladder.rs`).
+                views.sort_by_key(|v| state_urgency(v.state));
+                views
             })
             .unwrap_or_default();
 

@@ -1,0 +1,36 @@
+ ◆ opencode  · 49 sessions · ? 5 · ● 9 · ◐ 25 · ○ 10                  10m ● live
+ web-dashbo…  5  mobile-app  6          big-monorepo  11     ? 1  ● 2  ◐ 6  ○ 2 
+ ?       ●       ? 3m       ● 1m        ?       ● 9m       ◐ 2m       ◐ 4m      
+ 9m      22m     willow-…   quartz-…    7m      moss-ot…   east-ly…   south-…   
+                                                                                
+                                                                                
+                                                                                
+                 ◐ sable-heron   ◐                         ◐ 5m          ◐      
+ ◐ amber-fal…    editing:        2m     ●                  west-badger   8m     
+ editing: re…    Notification…          16m     ◐ 1m                            
+ run · 3m        run · 6m ↳3                    north-t…                        
+ ↳ cinder-wi…    shell: cargo…                             ◐ 3m                 
+                 editing: y.rs                             plum-heron           
+ ◐ extraordi…                                                                   
+ run · 11m      +2 idle                ○ rust-crane · 25m  +1 idle              
+                                                                                
++1 idle          ci-fleet-runner  22                        ? 1  ● 4  ◐ 13  ○ 4 
+                 ? 2m       ● 12m     ◐ 1m       ◐ 1m      ◐ 1m      ◐ 1m       
+ infra-tools  4  runner-…   runner…   runner-…   runner…   runner…   runner-…   
+ ?       ●                                                                      
+ 6m      4m                                                                     
+                                                                                
+                                                                                
+                 ● 26m      ● 5m      ◐ 1m       ◐ 1m      ◐ 1m       ◐ 1m      
+                 runner-…   runner…   runner-…   runner…   runner-…   runner…   
+                                                                                
+                                                                                
+ ◐ silver-ma…                                                                   
+ run · 1m        ● 19m      ◐ 1m      ◐ 1m       ◐ 1m      ◐ 1m       ◐ 1m      
+                 runner-…   runner…   runner-…   runner…   runner-…   runner…   
++1 idle                                                                         
+                                                                                
+ scratch-cli  1                                                                 
+                ○ runner-zeta · 30m  ○ runner-gamma · 30m  +2 idle              
+                                                                                
+q quit  w 80col  f fixture  +/- session  p project  . tick  hidden: docs-site (…

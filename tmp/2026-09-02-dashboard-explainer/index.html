@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>opencode-dashboard — design explainer</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <p class="brand">opencode-dashboard</p>
+  <p class="brand-sub">design explainer · 2026-09-02</p>
+  <ol>
+    <li aria-current="page"><a class="pg" href="index.html">What this is</a>
+      <ul class="sub">
+        <li><a href="#problem">The problem, and who it's for</a></li>
+        <li><a href="#shape">Two binaries, one library</a></li>
+        <li><a href="#scale">The number that governs everything</a></li>
+        <li><a href="#non-goals">Deliberately not in V1</a></li>
+        <li><a href="#docs">How the design is documented</a></li>
+        <li><a href="#open">What is still open</a></li>
+      </ul>
+    </li>
+    <li><a class="pg" href="architecture.html">Architecture &amp; data model</a></li>
+    <li><a class="pg" href="layout.html">The Mosaic layout</a></li>
+    <li><a class="pg" href="visuals.html">Cards &amp; the naming scheme</a></li>
+    <li><a class="pg" href="interactions.html">Keyboard &amp; windows</a></li>
+  </ol>
+  <p class="foot">Source: <code>tasks/2026-09-01-…requirements.md</code> and five spec files under <code>docs/specs/dashboard/</code>. Nothing is implemented yet.</p>
+</nav>
+
+<main>
+
+<p class="eyebrow">Design explainer — opencode-mcp</p>
+<h1>opencode-dashboard</h1>
+<p class="standfirst">A full-screen terminal view that shows every coding-agent session you
+have running, across every project, at once — and tells you which ones are waiting on you.</p>
+
+<div class="box">
+  <span class="lab">Status of this design</span>
+  <p><strong>Nothing is implemented.</strong> This is a spec, not a program. Two things are
+  settled by evidence rather than opinion: the layout was built as a real
+  <code>ratatui</code> program and reviewed against its render output
+  (<span class="r">R5</span>–<span class="r">R5.11</span>), and project identity was
+  confirmed against real opencode sessions and filesystem fixtures (9 checks,
+  <span class="r">R1.6</span>). The multi-harness architecture
+  (<span class="r">R1.3</span>–<span class="r">R1.8</span>) is designed and reviewed but
+  unbuilt: <strong>opencode is the only adapter that exists</strong>.</p>
+</div>
+
+<h2 id="problem"><span class="num">1</span>The problem, and who it's for</h2>
+
+<p>You run several coding agents at once, in different repositories, in different terminals.
+Each one is a separate process you have to go and look at. The expensive question is not
+“what is this agent doing” — it is <strong>“is anything waiting on me?”</strong> Answering
+that today means visiting every session in turn, and the cost of a forgotten session is
+idle time you can't get back.</p>
+
+<p>The dashboard is one screen that answers that question without a single keypress
+<span class="r">R7</span>. Every active session across every project is on screen at the
+same time, grouped by project, each one showing whether it's running, waiting on you, or
+gone quiet.</p>
+
+<p>Three properties fall out of that framing and drive almost every decision downstream:</p>
+
+<ul>
+  <li><strong>Attention, not analytics.</strong> The screen is organised around who is
+  waiting on whom. Cost, tokens, and diffs are all explicitly out of scope
+  <span class="r">R10</span>.</li>
+  <li><strong>Area is the scarce resource.</strong> With a handful of sessions and a whole
+  screen, the interesting design problem is how a tile <em>grows</em> into the space it
+  happens to get <span class="r">R5.3</span>.</li>
+  <li><strong>Keyboard only.</strong> Every control is reachable without a mouse
+  <span class="r">R10</span>.</li>
+</ul>
+
+<p>It is deliberately not a general session manager: no pagination beyond the live window,
+no git history, no mouse interaction <span class="r">R10</span>. It is a glanceable
+attention surface.</p>
+
+<h2 id="shape"><span class="num">2</span>Two binaries, one library</h2>
+
+<p>The dashboard is its own program in the same repository as the existing
+<code>opencode-mcp</code> MCP server, not a mode of it <span class="r">R1</span>. The two
+share one library, <code>crates/opencode-client</code>, which owns talking to the opencode
+server: authentication, the session list, session messages, and the event stream.</p>
+
+<p>The point of the split is dependency hygiene <span class="r">R1.1</span>:</p>
+
+<table>
+  <caption>Who links what.</caption>
+  <thead><tr><th>Crate</th><th>Depends on</th><th>Deliberately does <em>not</em> depend on</th></tr></thead>
+  <tbody>
+    <tr><td class="m">opencode-client</td><td>HTTP + SSE + auth</td><td>no <code class="m">ratatui</code>, no <code class="m">rmcp</code></td></tr>
+    <tr><td class="m">dashboard</td><td>client + <code class="m">ratatui</code> + <code class="m">crossterm</code></td><td>no MCP toolkit</td></tr>
+    <tr><td class="m">mcp</td><td>client + <code class="m">rmcp</code></td><td>no TUI toolkit</td></tr>
+  </tbody>
+</table>
+
+<p>The dashboard connects straight to the opencode server on
+<code>127.0.0.1:49374</code> using the password the server itself writes to
+<code>service.json</code> — it does <em>not</em> need the MCP process running
+<span class="r">R1.2</span>. If session metadata happens to show a session was started via
+MCP, the dashboard shows a small <code>via MCP</code> tag as a bonus; its absence changes
+nothing else about how that session is displayed.</p>
+
+<p>Standard terminal-app discipline applies <span class="r">R2</span>: alternate screen and
+raw mode, cursor hidden, and the terminal restored on exit <em>even if the process
+panics</em>; a 250&nbsp;ms <code>poll()</code> rather than busy-waiting; resize handled;
+<code>KeyEventKind::Press</code> only, so a held key doesn't fire repeatedly.</p>
+
+<h2 id="scale"><span class="num">3</span>The number that governs everything</h2>
+
+<div class="box rule">
+  <span class="lab">R5.8 — real usage scale</span>
+  <p>Typically <strong>2 sessions per project, 4 projects at a time, ~8 sessions
+  total</strong>. Not 10, not 50+.</p>
+</div>
+
+<p>This single correction is worth more than any other note on this page, because several
+earlier drafts and spikes were implicitly tuned against a 10–50 session stress case and
+were wrong for it. The measurable consequence: at 4 projects and 8 sessions, three of four
+candidate layouts used <strong>13 of 40 available rows at most</strong>. Only the
+area-proportional layout used all 40 <span class="r">R5.9</span>.</p>
+
+<p>That is why the layout is built around filling the screen rather than around
+overflow-safety. At this scale the per-project 3-tile cap and its overflow chip essentially
+never fire <span class="r">R5.8</span>. Larger scale must still not break badly — but it is
+a secondary check, not the design target.</p>
+
+<h2 id="non-goals"><span class="num">4</span>Deliberately not in V1</h2>
+
+<table>
+  <caption>R10 — non-goals.</caption>
+  <thead><tr><th>Out of scope</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td>Cost / token analytics</td><td>Cut from the card by direct decision — resolving a contradiction with an earlier 4-line card</td></tr>
+    <tr><td>Git diff or history views</td><td>—</td></tr>
+    <tr><td>Pagination beyond the live window</td><td>The window <code>W</code> is the navigation mechanism</td></tr>
+    <tr><td>Subagent nesting deeper than one level</td><td>Subagents are content inside the parent tile, not a third level <span class="r">R5.6</span></td></tr>
+    <tr><td>Animated reflow</td><td>Layout changes snap on the next frame <span class="r">R8</span></td></tr>
+    <tr><td>Any mouse-only interaction</td><td>Everything is keyboard-reachable</td></tr>
+    <tr><td>Status-weighted area</td><td>A V2 toggle, not V1. Making an urgent tile <em>bigger</em> is explicitly rejected <span class="r">R6.1</span></td></tr>
+  </tbody>
+</table>
+
+<h2 id="docs"><span class="num">5</span>How the design is documented</h2>
+
+<p>The design lives in five spec files, split by concern rather than by feature. Every
+requirement has a stable number — <code>R5.2</code>, <code>R6.8</code> — that other specs,
+QA artefacts and code comments cite directly. Numbers are <strong>never
+renumbered</strong>; if a requirement is superseded it says so in place and keeps its
+number.</p>
+
+<table>
+  <caption>The spec tree under <code>docs/specs/dashboard/</code>.</caption>
+  <thead><tr><th>File</th><th>Owns</th></tr></thead>
+  <tbody>
+    <tr><td class="m">overview.md</td><td>Scope, the two-crate split, the harness-agnostic core boundary (summary), the active/idle window, real usage scale, non-goals — <span class="r">R1</span>, <span class="r">R3</span>, <span class="r">R5.8</span>, <span class="r">R10</span></td></tr>
+    <tr><td class="m">client.md</td><td>The <code>HarnessAdapter</code> contract in full, session snapshots, session and project identity, staleness, and the opencode adapter's own REST/SSE mechanics — <span class="r">R1.3</span>–<span class="r">R1.8</span>, <span class="r">R4</span>, <span class="r">R6.4</span>–<span class="r">R6.6</span></td></tr>
+    <tr><td class="m">layout.md</td><td>The Mosaic: weighting, squarify packing, tile content scaling, minimum sizes, degrade states — <span class="r">R5</span>, <span class="r">R9</span></td></tr>
+    <tr><td class="m">visuals.md</td><td>Chrome, card content, the attention model, the naming scheme — <span class="r">R6</span></td></tr>
+    <tr><td class="m">interactions.md</td><td>Keyboard navigation, zoom, window controls — <span class="r">R7</span>, <span class="r">R8</span></td></tr>
+  </tbody>
+</table>
+
+<p>Two conventions make these specs safe to implement against:</p>
+
+<ul>
+  <li><strong>One scenario per requirement, co-located.</strong> Every requirement is
+  followed immediately by its own <em>Given / When / Then</em> — the primary happy path
+  written right where the rule is, not in a separate QA file.</li>
+  <li><strong>Unresolved questions are marked, not silently answered.</strong> An open
+  question carried forward from the source material is written as
+  <code>[REVIEW: …]</code> next to the requirement. Writing the spec does not license the
+  writer to pick an answer; that is a design decision, not a transcription one. This
+  explainer marks those the same way — see below.</li>
+</ul>
+
+<h2 id="open"><span class="num">6</span>What is still open</h2>
+
+<p>Twelve items are genuinely undecided. They are listed here because a reader who assumes
+the design is finished will be wrong about something specific.</p>
+
+<table>
+  <caption>Open questions, roughly in order of how much they block an implementer.</caption>
+  <thead><tr><th>#</th><th>Open item</th><th>Req</th></tr></thead>
+  <tbody>
+    <tr><td class="m">1</td><td><strong>Card chrome.</strong> Three options under test — (A) border on project box and card, (B) no borders anywhere, colour stripe plus header line, (C) border on project box only. This is the live prototype axis. It must be settled by a <em>runnable render in the user's own terminal</em>, because a text mockup would rig the comparison: box-drawing characters survive as plain text, while B's entire grouping signal is colour.</td><td class="m">R6.2</td></tr>
+    <tr><td class="m">2</td><td><strong>3 lines vs. continuous scaling.</strong> <code>visuals.md</code> R6.3 says a card shows exactly 3 lines; <code>layout.md</code> R5.3 says tile content is a continuous function of the tile's size. Not reconciled.</td><td class="m">R6.3 / R5.3</td></tr>
+    <tr><td class="m">3</td><td><strong>Staleness threshold</strong> and its on-screen treatment (dim it? a new state? drop it?). Not urgent in V1 — opencode's 60&nbsp;s reconcile sweep already covers it — but load-bearing the moment a push-only adapter exists.</td><td class="m">R1.7</td></tr>
+    <tr><td class="m">4</td><td><strong>Naming capacity edge case.</strong> More live projects than curated categories, or more live sessions in one project than its category has words. A numeric-suffix fallback is acceptable; exact behaviour isn't decided.</td><td class="m">R6.8</td></tr>
+    <tr><td class="m">5</td><td><strong>Question-badge heuristic.</strong> “Ends in <code>?</code>, or matches a short phrase list” is a placeholder, not a spec.</td><td class="m">R6.7</td></tr>
+    <tr><td class="m">6</td><td><strong>Global overflow under “show all”</strong> with 50+ sessions. Per-project degrade is specified; a global <code>+N</code> strategy is not.</td><td class="m">R5.6 / R8</td></tr>
+    <tr><td class="m">7</td><td><strong>Minimum sizes.</strong> The 12×5 tile and 14×7 region floors were set for an earlier 4-line card and need rechecking against the current content ladder.</td><td class="m">R5.5</td></tr>
+    <tr><td class="m">8</td><td><strong>Arrow-key semantics.</strong> Whether all four arrows step one tile in reading order, or Up/Down jump by row. The spec assumes all four are equivalent until decided otherwise.</td><td class="m">R7.1</td></tr>
+    <tr><td class="m">9</td><td><strong>Project-level zoom.</strong> The source says Enter zooms the selected “tile/project box”, but nothing describes selecting a project box. Only tile zoom is specified.</td><td class="m">R7.1</td></tr>
+    <tr><td class="m">10</td><td><strong>Harness-tag glyph</strong> and its placement. Only the <em>slot</em> must exist; the design waits for a second adapter to design against.</td><td class="m">R1.8</td></tr>
+    <tr><td class="m">11</td><td><strong>Case normalisation</strong> in project-identity canonicalisation is unverified — the confirming machine is case-insensitive but case-preserving, so no fixture produced a real case mismatch.</td><td class="m">R1.6</td></tr>
+    <tr><td class="m">12</td><td><strong>M3 implementation gaps.</strong> Two of nine tool wire shapes (<code>glob</code>, <code>patch</code>) are unconfirmed, and the bridge's <code>SessionInfo</code> silently drops <code>location</code>, <code>projectID</code> and <code>subpath</code> — which the adapter needs for project identity.</td><td class="m">R6.6 / R1.6</td></tr>
+  </tbody>
+</table>
+
+<div class="pager">
+  <span class="none"></span>
+  <a class="next" href="architecture.html"><span class="lbl">Next</span>Architecture &amp; the data model →</a>
+</div>
+
+</main>
+</div>
+</body>
+</html>

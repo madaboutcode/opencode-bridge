@@ -5,9 +5,44 @@
 //! `State` import changed, from the spike's fixture type to
 //! `crate::mosaic::view::State`.
 
+use std::sync::OnceLock;
+
 use ratatui::style::Color;
 
 use crate::mosaic::view::State;
+
+/// Selects between real Nerd Font glyphs (default — needs a patched font
+/// installed in the terminal) and plain-Unicode fallbacks (safe on any
+/// terminal, no font dependency). Set once at startup from a CLI flag/env
+/// var (`main.rs`), read on every glyph lookup below. A process-wide
+/// `OnceLock` rather than a threaded parameter: unlike session data (which
+/// `layout.md` R5.4 requires recomputed fresh every frame, never cached),
+/// this is an immutable-for-the-process rendering preference, the same
+/// category as the terminal's color support — threading it through every
+/// ladder/render function signature would be pure mechanical churn for a
+/// value that never changes after startup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IconMode {
+    Nerd,
+    Plain,
+}
+
+static ICON_MODE: OnceLock<IconMode> = OnceLock::new();
+
+/// Called exactly once, before the first frame renders (`main.rs`). A
+/// second call is a programming error, not a runtime condition — panics
+/// rather than silently ignoring a would-be mode change mid-run.
+pub fn set_icon_mode(mode: IconMode) {
+    ICON_MODE
+        .set(mode)
+        .expect("set_icon_mode called more than once");
+}
+
+/// Defaults to `Nerd` if `set_icon_mode` was never called (unit tests,
+/// and any future caller that doesn't go through `main.rs`).
+pub fn icon_mode() -> IconMode {
+    *ICON_MODE.get().unwrap_or(&IconMode::Nerd)
+}
 
 pub const GUTTER: Color = Color::Rgb(0x16, 0x16, 0x1e);
 pub const PLATE: Color = Color::Rgb(0x1a, 0x1b, 0x26);
@@ -15,7 +50,6 @@ pub const PLATE: Color = Color::Rgb(0x1a, 0x1b, 0x26);
 pub const TEXT_PRIMARY: Color = Color::Rgb(0xc0, 0xca, 0xf5);
 pub const TEXT_SECONDARY: Color = Color::Rgb(0xa9, 0xb1, 0xd6);
 pub const TEXT_DIM: Color = Color::Rgb(0x56, 0x5f, 0x89);
-pub const SUBAGENT: Color = Color::Rgb(0x7d, 0xcf, 0xff);
 pub const LIVE: Color = Color::Rgb(0x9e, 0xce, 0x6a);
 
 pub const STATUS_RUNNING: Color = Color::Rgb(0x7a, 0xa2, 0xf7);
@@ -82,19 +116,67 @@ pub fn tile_body(state: State) -> Color {
     }
 }
 
-/// Running spinner frame, one per 250ms tick — the only motion. `tick` is
-/// derived by the caller from the render-time clock (`now.epoch_millis() /
-/// 250`), not tracked as state here.
+/// Running spinner frame, one per 250ms tick — the only motion in plain
+/// mode. `tick` is derived by the caller from the render-time clock
+/// (`now.epoch_millis() / 250`), not tracked as state here.
+///
+/// Nerd mode uses a single static glyph (`nf-fa-circle_notch`, U+F1CE)
+/// instead of rotating: the glyph itself already reads as a spinner
+/// mid-turn, so cycling it every 250ms would just flicker rather than
+/// convey motion — the blue `STATUS_RUNNING` color is what says "active"
+/// in that mode.
 pub fn running_glyph(tick: usize) -> &'static str {
-    const FRAMES: [&str; 4] = ["◐", "◓", "◑", "◒"];
-    FRAMES[tick % 4]
+    match icon_mode() {
+        IconMode::Plain => {
+            const FRAMES: [&str; 4] = ["◐", "◓", "◑", "◒"];
+            FRAMES[tick % 4]
+        }
+        IconMode::Nerd => "\u{f1ce}",
+    }
 }
 
+/// Per-state glyph, both modes. Plain-mode glyphs are the original
+/// symbols (unchanged, so anyone without a patched font sees exactly what
+/// shipped before this). Nerd-mode glyphs are real Nerd Font Font Awesome
+/// codepoints, verified against the upstream glyph table (not guessed):
+/// question-circle (f059), exclamation-circle (f06a), circle-notch
+/// (f1ce, via `running_glyph`), circle-o (f10c). All four are variants of
+/// the same circular base shape in nerd mode — a deliberate Gestalt choice
+/// (same frame, different fill/mark) so the eye learns one shape family
+/// and discriminates state by what's inside it, the same way `htop`'s
+/// process-state letters or `k9s`'s pod-status glyphs share a column.
+/// Every state is also still distinguishable by glyph shape alone in
+/// monochrome (not color-only), for the ~8% of users with color vision
+/// deficiency — `visuals.md` R6.1's color-and-glyph redundancy rule.
 pub fn state_glyph(state: State, tick: usize) -> &'static str {
-    match state {
-        State::Question => "?",
-        State::NeedsYou => "●",
-        State::Running => running_glyph(tick),
-        State::Idle => "○",
+    match (icon_mode(), state) {
+        (IconMode::Plain, State::Question) => "?",
+        (IconMode::Plain, State::NeedsYou) => "●",
+        (IconMode::Plain, State::Idle) => "○",
+        (IconMode::Nerd, State::Question) => "\u{f059}",
+        (IconMode::Nerd, State::NeedsYou) => "\u{f06a}",
+        (IconMode::Nerd, State::Idle) => "\u{f10c}",
+        (_, State::Running) => running_glyph(tick),
+    }
+}
+
+/// The subagent-list connector (`ladder.rs::subagent_line`), always
+/// rendered in `TEXT_DIM` regardless of the subagent's own state — it's
+/// structural chrome (like a tree-drawing character), not a data signal.
+pub fn connector_glyph() -> &'static str {
+    match icon_mode() {
+        IconMode::Plain => "↳",
+        IconMode::Nerd => "\u{f149}", // nf-fa-level_down
+    }
+}
+
+/// The header mark (`render.rs::draw_header`, " {glyph} opencode "). No
+/// official opencode logo glyph exists in Nerd Fonts; `nf-cod-terminal`
+/// (a terminal/code icon) is the closest fit for "a tool that watches
+/// coding agents running in a terminal."
+pub fn header_glyph() -> &'static str {
+    match icon_mode() {
+        IconMode::Plain => "◆",
+        IconMode::Nerd => "\u{eb50}", // nf-cod-terminal
     }
 }

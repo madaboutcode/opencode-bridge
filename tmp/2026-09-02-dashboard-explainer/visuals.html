@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cards &amp; the naming scheme — opencode-dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <p class="brand">opencode-dashboard</p>
+  <p class="brand-sub">design explainer · 2026-09-02</p>
+  <ol>
+    <li><a class="pg" href="index.html">What this is</a></li>
+    <li><a class="pg" href="architecture.html">Architecture &amp; data model</a></li>
+    <li><a class="pg" href="layout.html">The Mosaic layout</a></li>
+    <li aria-current="page"><a class="pg" href="visuals.html">Cards &amp; the naming scheme</a>
+      <ul class="sub">
+        <li><a href="#look">Look and chrome</a></li>
+        <li><a href="#card">What a card shows</a></li>
+        <li><a href="#attention">The attention model</a></li>
+        <li><a href="#naming">The naming scheme</a></li>
+        <li><a href="#guarantees">What it guarantees</a></li>
+        <li><a href="#reversal">Why the old scheme was reversed</a></li>
+        <li><a href="#words">The word lists</a></li>
+      </ul>
+    </li>
+    <li><a class="pg" href="interactions.html">Keyboard &amp; windows</a></li>
+  </ol>
+  <p class="foot">Source: <code>tasks/2026-09-01-…requirements.md</code> and five spec files under <code>docs/specs/dashboard/</code>. Nothing is implemented yet.</p>
+</nav>
+
+<main>
+
+<p class="eyebrow">Visuals</p>
+<h1>Cards, attention, and names</h1>
+<p class="standfirst">Three states, named after who is waiting on whom. A card identity that
+is one plain word — and a two-layer claim scheme that makes two promises it can actually
+keep.</p>
+
+<h2 id="look"><span class="num">1</span>Look and chrome</h2>
+
+<p>A dark-themed TUI on the <strong>Tokyo Night</strong> palette, designed against a
+monospace reference font (JetBrains Mono — though the program cannot force which font the
+user's terminal renders with) <span class="r">R6</span>.</p>
+
+<div class="box open">
+  <span class="lab">Open — the one live prototype axis</span>
+  <p>Whether cards and projects use borders at all, and where, is <strong>not
+  decided</strong>. Three options are under test in a real terminal render:</p>
+  <ul>
+    <li><strong>(A)</strong> border on both the project box and each session card</li>
+    <li><strong>(B)</strong> no borders anywhere — grouping by colour stripe plus a header
+    line only</li>
+    <li><strong>(C)</strong> border on the project box only; cards inside are plain</li>
+  </ul>
+  <p>Whichever wins must avoid empty container waste and keep grouping unambiguous at
+  narrow widths. Note the tension with <span class="r">R5.11</span>, which reports that
+  <em>the current layout has no borders at all</em> — and with <span class="r">R6</span>'s
+  own “nested, padded, rounded-corner boxes, not flat tiles”. This is open item 1.</p>
+</div>
+
+<h2 id="card"><span class="num">2</span>What a card shows</h2>
+
+<p>Three lines <span class="r">R6.3</span>:</p>
+
+<ol>
+  <li><strong>Title / handle line</strong> — the session's nickname plus its wire title (the
+  harness's own session title). Both are always present; whether they sit in a border title
+  or share a plain text line depends on which chrome option wins.</li>
+  <li><strong>Status + elapsed</strong> — e.g. <code>needs-you · question</code>,
+  <code>needs-you · 14m</code>, <code>running · 2m ago</code>.</li>
+  <li><strong>Current action</strong> — one truncated line, e.g. <code>editing: foo.rs</code>
+  or <code>npm test</code>. It holds its last value until new activity replaces it.</li>
+</ol>
+
+<p>Cost and token counts were considered for a fourth line and <strong>cut by direct
+decision</strong> — which also resolved a contradiction with the cost-analytics non-goal.</p>
+
+<div class="box open">
+  <span class="lab">Open — a real tension between two specs</span>
+  <p><code>visuals.md</code> R6.3 says a card shows <strong>exactly 3 lines</strong>.
+  <code>layout.md</code> R5.3 says tile content is a <strong>continuous function of the
+  tile's size</strong>, from colour-only up through compact up through an extended
+  multi-block form. These cannot both be true at large tile sizes. Not reconciled — flagged
+  for whoever settles which rule governs card content as tiles grow.</p>
+</div>
+
+<h2 id="attention"><span class="num">3</span>The attention model</h2>
+
+<div class="box rule">
+  <span class="lab">R6.7 — confirmed final</span>
+  <p>Three states, not four. Every session is in exactly one. They are named for
+  <strong>who is waiting on whom</strong>.</p>
+</div>
+
+<table>
+  <caption>The three states.</caption>
+  <thead><tr><th>State</th><th>Means</th><th>Shows</th><th>Ordering</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><strong>running</strong></td>
+      <td>A turn is in progress.</td>
+      <td>The live current-action line.</td>
+      <td>Not urgent — sorts after <code>needs-you</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>needs-you</strong></td>
+      <td>The turn ended; the harness is waiting on you.</td>
+      <td>See the two sub-states below.</td>
+      <td>Sorts before <code>running</code>.</td>
+    </tr>
+    <tr>
+      <td><strong>idle</strong></td>
+      <td>Outside the active window <code>W</code> — but the session still exists.</td>
+      <td>Never hidden silently if its project has ≥1 active session; otherwise an overflow chip.</td>
+      <td>Context only.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>The two <code>needs-you</code> sub-states</h3>
+<p>Same underlying status, two presentations <span class="r">R6.7</span>:</p>
+<ul>
+  <li><strong>question badge</strong> — the ended turn's final assistant text looks like a
+  question. Distinct badge and colour, and <strong>sorted first among all sessions</strong>.
+  This is the case the user called out directly: an agent waiting on an answer should be
+  prominently highlighted.</li>
+  <li><strong>needs-you <code>Nm</code></strong> — ended turn, heuristic didn't match. Elapsed
+  since the turn ended is shown directly, and <strong>that number is the urgency
+  ordering</strong> — longest-waiting sorts earlier. No separate tier is needed.</li>
+</ul>
+
+<div class="box why">
+  <span class="lab">Why the question state is a guess at all</span>
+  <p>Confirmed live: a session told to stop and ask a clarifying question ends with plain
+  <code>outcome: "succeeded"</code> and <code>time.idle</code> set —
+  <strong>wire-identical to a normal completed turn</strong>. Opencode has no
+  permission or ask-question protocol signal. So the heuristic on the final text is the only
+  way to tell them apart. It is evaluated <strong>once, on the transition into
+  <code>needs-you</code></strong> — not on every poll. (And per the adapter boundary, it
+  lives inside the opencode adapter: a harness with a real “waiting on you” signal reports
+  it directly instead.)</p>
+</div>
+
+<div class="box why">
+  <span class="lab">Why “stalled” was dropped, and why that was a real reduction</span>
+  <p>A fourth state, <code>stalled</code>, was considered and removed: <strong>no wire
+  signal exists to detect it</strong>. This was not waved through — the user was asked
+  point-blank whether they had ever had a session actually hang, as opposed to finish and sit
+  waiting. The answer was no, and the reduction was accepted on that basis. Removing the
+  state also removed the one thing the status-weighted-area toggle existed for, which is why
+  that toggle is now unnecessary <span class="r">R6.1</span>.</p>
+</div>
+
+<div class="box why">
+  <span class="lab">Why the names changed</span>
+  <p>An earlier draft used <code>waiting</code> as a machine state, which was ambiguous —
+  the agent waiting, or you waiting? The three names answer that question in the label
+  itself.</p>
+</div>
+
+<h2 id="naming"><span class="num">4</span>The naming scheme</h2>
+
+<p>Every card's identity is <strong>a single word</strong> drawn from a categorized, curated
+wordlist. Words are <strong>never combined</strong> — no adjective+noun pairing. One plain
+word per card.</p>
+
+<p>Names are handed out by a <strong>two-layer claim scheme</strong>. Both layers work the
+same way: prefer a hash-derived slot, and if that slot is taken, move
+<em>deterministically</em> — never randomly — to another one.</p>
+
+<figure>
+<svg viewBox="0 0 780 430" role="img" aria-label="Layer one: a project hashes to a preferred category, probing forward if taken, holding it while it has a live session. Layer two: a session hashes to a preferred word inside that category, probing by a deterministic stride if the word is taken or cooling down, and the word enters cooldown when the session ends.">
+  <defs>
+    <marker id="ah2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#6d727c"></path>
+    </marker>
+  </defs>
+
+  <!-- ============================ LAYER 1 -->
+  <text class="d-eyebrow" x="20" y="22">Layer 1 — project → category · held exclusively for as long as the project has a live session</text>
+
+  <g class="d-box">
+    <rect x="20"  y="32" width="104" height="72" rx="3"></rect>
+    <rect x="146" y="32" width="104" height="72" rx="3"></rect>
+    <rect x="272" y="32" width="104" height="72" rx="3"></rect>
+    <rect x="398" y="32" width="104" height="72" rx="3"></rect>
+    <rect x="524" y="32" width="104" height="72" rx="3"></rect>
+    <rect x="650" y="32" width="104" height="72" rx="3"></rect>
+  </g>
+  <g class="d-key">
+    <text x="30"  y="50">project id</text>
+    <text x="156" y="50">hash</text>
+    <text x="282" y="50">mod 10</text>
+    <text x="408" y="50">taken?</text>
+    <text x="534" y="50">CLAIMED</text>
+    <text x="660" y="50">RELEASED</text>
+  </g>
+  <g class="d-sub">
+    <text x="30"  y="65">git toplevel,</text>  <text x="30"  y="78">or working dir</text>
+    <text x="156" y="65">of the</text>          <text x="156" y="78">canonical path</text>
+    <text x="282" y="65">→ preferred</text>     <text x="282" y="78">category</text>
+    <text x="408" y="65">probe forward,</text>  <text x="408" y="78">wrapping</text>
+    <text x="534" y="65">while ≥1 live</text>   <text x="534" y="78">session</text>
+    <text x="660" y="65">0 live sessions</text> <text x="660" y="78">or stale — R1.7</text>
+  </g>
+  <g class="d-arrow" marker-end="url(#ah2)">
+    <line x1="124" y1="68" x2="144" y2="68"></line>
+    <line x1="250" y1="68" x2="270" y2="68"></line>
+    <line x1="376" y1="68" x2="396" y2="68"></line>
+    <line x1="502" y1="68" x2="522" y2="68"></line>
+    <line x1="628" y1="68" x2="648" y2="68"></line>
+  </g>
+
+  <!-- ============================ LAYER 2 -->
+  <text class="d-eyebrow" x="20" y="144">Layer 2 — session → word · one seat per live session, inside its project's claimed category</text>
+
+  <g class="d-box">
+    <rect x="20"  y="154" width="104" height="72" rx="3"></rect>
+    <rect x="146" y="154" width="104" height="72" rx="3"></rect>
+    <rect x="272" y="154" width="104" height="72" rx="3"></rect>
+    <rect x="398" y="154" width="104" height="72" rx="3"></rect>
+    <rect x="524" y="154" width="104" height="72" rx="3"></rect>
+    <rect x="650" y="154" width="104" height="72" rx="3"></rect>
+  </g>
+  <g class="d-key">
+    <text x="30"  y="172">session id</text>
+    <text x="156" y="172">hash</text>
+    <text x="282" y="172">mod N</text>
+    <text x="408" y="172">taken?</text>
+    <text x="534" y="172">CLAIMED</text>
+    <text x="660" y="172">COOLDOWN</text>
+  </g>
+  <g class="d-sub">
+    <text x="30"  y="187">harness kind</text>   <text x="30"  y="200">+ native id</text>
+    <text x="156" y="187">of both</text>         <text x="156" y="200">parts</text>
+    <text x="282" y="187">→ preferred</text>     <text x="282" y="200">word</text>
+    <text x="408" y="187">or cooling?</text>     <text x="408" y="200">probe by stride</text>
+    <text x="534" y="187">while the</text>       <text x="534" y="200">session is live</text>
+    <text x="660" y="187">not claimable</text>   <text x="660" y="200">again yet</text>
+  </g>
+  <g class="d-arrow" marker-end="url(#ah2)">
+    <line x1="124" y1="190" x2="144" y2="190"></line>
+    <line x1="250" y1="190" x2="270" y2="190"></line>
+    <line x1="376" y1="190" x2="396" y2="190"></line>
+    <line x1="502" y1="190" x2="522" y2="190"></line>
+    <line x1="628" y1="190" x2="648" y2="190"></line>
+  </g>
+
+  <text class="d-arrow-lbl" x="450" y="242" text-anchor="middle">the probe stride is hash-derived and deterministic — never random</text>
+
+  <!-- ============================ GUARANTEES -->
+  <rect class="d-box-key" x="20" y="256" width="360" height="86" rx="3"></rect>
+  <text class="d-eyebrow" x="32" y="274" style="fill:#2c6a45">Hard guarantees — not low-probability</text>
+  <g class="d-sub-i">
+    <text x="32" y="292">• no two sessions in one project share a name</text>
+    <text x="32" y="307">• no two live projects share a name</text>
+    <text x="32" y="328">Layer 2 alone earns only the first.</text>
+    <text x="32" y="341">Layer 1 upgrades it: disjoint pools.</text>
+  </g>
+
+  <rect class="d-box-open" x="400" y="256" width="360" height="86" rx="3"></rect>
+  <text class="d-eyebrow" x="412" y="274" style="fill:#9a6420">Assumed — never checked at runtime</text>
+  <g class="d-sub-i">
+    <text x="412" y="292">• live projects never outnumber categories</text>
+    <text x="412" y="307">• no word appears in two category files</text>
+    <text x="412" y="328">Both are curation duties on whoever</text>
+    <text x="412" y="341">authors the lists — never runtime checks.</text>
+  </g>
+
+  <!-- ============================ COOLDOWN -->
+  <rect class="d-box-soft" x="20" y="354" width="740" height="56" rx="3"></rect>
+  <text class="d-eyebrow" x="32" y="372">Recycling — cooldown</text>
+  <g class="d-sub-i">
+    <text x="32" y="389">A departed session's word does not return to the pool immediately. It enters cooldown and isn't claimable</text>
+    <text x="32" y="402">again until enough <tspan font-weight="700">other</tspan> distinct words in that category have been claimed since.</text>
+  </g>
+</svg>
+<figcaption><b>Two layers, one mechanism.</b> Prefer a hash-derived slot; if it's
+unavailable, move deterministically to another. The reason there are two layers and not one
+is in the green box: per-project uniqueness is a local property, and the project→category
+layer is what makes it global.</figcaption>
+</figure>
+
+<h3>The cooldown, in detail</h3>
+<p>When a session ends, its word does not go back into the pool. It enters
+<strong>cooldown</strong>: it isn't claimable again until enough <em>other</em> distinct
+words in that category have been claimed since it was freed.</p>
+
+<p>The mechanism is deliberately cheap — a small per-word “last freed” counter compared
+against a per-category “claims made since” counter. <strong>Bounded state, no historical
+log.</strong></p>
+
+<div class="box why">
+  <span class="lab">Why cooldown exists</span>
+  <p>Without it, a name could start pointing at a different session moments after the
+  original one ends. The user's mental pointer — “go look at Apollo” — would silently
+  retarget to something else. Cooldown buys enough distance that a name doesn't change
+  meaning while it's still in working memory.</p>
+</div>
+
+<h3>A worked example</h3>
+<ol>
+  <li>Project <code>opencode-mcp</code> becomes live. It hashes to category index 4 —
+  <em>chess</em>. Another live project already holds chess, so layer 1 probes forward and
+  claims index 5, <em>Mollywood</em>.</li>
+  <li>A session starts inside it. Its identity <code>(opencode, ses_9f2…)</code> hashes to
+  word 3 in the Mollywood list → <em>Dasan</em>. Dasan is free and off cooldown, so it is
+  claimed.</li>
+  <li>A second session starts. It also hashes to <em>Dasan</em>. Dasan is held by a live
+  sibling, so layer 2 probes forward by its deterministic stride and lands on the next word
+  that is both free and off cooldown.</li>
+  <li>The first session ends. <em>Dasan</em> enters cooldown — it is now free but
+  <strong>not</strong> claimable.</li>
+  <li>A third session arrives whose hash lands on <em>Dasan</em>. It is skipped — not
+  because it is taken, but because it is cooling — and the probe moves it on. Dasan only
+  becomes claimable once enough other Mollywood words have been cycled through.</li>
+</ol>
+
+<h2 id="guarantees"><span class="num">5</span>What it guarantees</h2>
+
+<div class="box rule">
+  <span class="lab">Both hard</span>
+  <ul>
+    <li>No two sessions <strong>in the same live project</strong> ever show the same name.</li>
+    <li>No two <strong>live projects</strong> ever show the same name.</li>
+  </ul>
+</div>
+
+<p>The second guarantee is the interesting one, and it is the entire reason layer 1 exists.
+Layer 2 only ever promises uniqueness among siblings within one project. Giving each project
+its own category — and relying on the curation rule that no word appears in two category
+files — turns a local guarantee into a global one.</p>
+
+<div class="box open">
+  <span class="lab">Open — capacity edge case</span>
+  <p>What happens if a capacity assumption breaks — more live projects than curated
+  categories, or more live sessions in one project than that category has words — is
+  <strong>not specified</strong>. A numeric-suffix fallback (appending a number to a reused
+  word) is noted as acceptable, since this is a genuine capacity condition rather than the
+  common case the scheme is built around, but the exact behaviour isn't decided.</p>
+</div>
+
+<div class="box gotcha">
+  <span class="lab">Coupling — affects the naming pool, not just display</span>
+  <p>Both claim layers must release their claim under <span class="r">R1.7</span>'s eventual
+  <em>staleness</em> rule, not only on an explicit “gone” tombstone. Otherwise a session or
+  project that goes silently stale without a tombstone keeps its claim and its seat forever,
+  <strong>leaking the pool permanently</strong>. R1.7's threshold isn't decided yet; this
+  coupling is recorded so it is visible when R1.7 gets designed, rather than discovered
+  later.</p>
+</div>
+
+<h2 id="reversal"><span class="num">6</span>Why the 2026-09-01 scheme was reversed</h2>
+
+<p>The earlier rule was a deterministic adjective+noun nickname (both words ≤ 6 characters),
+hashed from session identity alone, which <strong>explicitly accepted collisions</strong>
+and <strong>forbade fixing them at render time</strong> (no appending hash characters). This
+new scheme is a reversal, not a tweak, for two reasons.</p>
+
+<h3>6.1 — Birthday-paradox math</h3>
+<p>The old rule was right <em>for its own scheme</em>. Adjective+noun is combinatorially
+large, so collisions were genuinely rare and cheap to accept. A single word drawn from one
+category's list of 10–14 words is a much smaller space: at real session counts,
+<strong>same-project collisions become common, not rare</strong>.</p>
+
+<h3>6.2 — Uniqueness cannot be a pure function of a session's own id</h3>
+<p>This is the deeper one. If two sessions prefer the same word, whichever one doesn't get
+it must display something <strong>not explained by its own id alone</strong>. So the name
+has to depend on arrival history — who else was live, and when.</p>
+
+<div class="box why">
+  <span class="lab">The tradeoff, seen from both sides</span>
+  <p>The old rule advertised “pure function of session ID alone — no storage, no cache.”
+  That property is <strong>provably incompatible</strong> with “collision-free and stable for
+  the session's whole lifetime.” They are the same tradeoff viewed from two ends, and only
+  one survives once uniqueness is required. The new scheme keeps uniqueness and
+  deliberately drops purity.</p>
+</div>
+
+<h3>6.3 — Two independent freeze levels</h3>
+<p>The wordlists are frozen once approved, and freezing now applies at
+<strong>two independent levels</strong>: the category list itself, and each category's own
+word list. Changing either after V1 reshuffles who holds which seat, because
+<em>both</em> claim layers depend on list order and length through the
+<code>hash mod count</code> arithmetic.</p>
+
+<h3>6.4 — Placement follows the chrome decision</h3>
+<p>Where the nickname appears is <strong>not an independent choice</strong>. If chrome
+settles on (A) or (C), a border exists and the nickname goes in that border's title. If it
+settles on (B), the nickname shares card line 1 as <code>nickname · title</code>. The wire
+title is shown as descriptive content either way.</p>
+
+<h2 id="words"><span class="num">7</span>The word lists</h2>
+
+<p>Ten categories, frozen 2026-09-02. Each is destined to become its own file
+(<code>wordlists/&lt;category&gt;.txt</code>) once the dashboard crate is scaffolded; until
+then they are held together. Rules: <strong>≤ 10 characters per word, no word repeated
+across categories</strong>. Ten categories rather than an earlier proposal of six, for
+headroom against the project-count capacity edge case.</p>
+
+<table>
+  <caption>The frozen starter content.</caption>
+  <thead><tr><th>Category</th><th>Words</th></tr></thead>
+  <tbody>
+    <tr><td>Greek myth</td><td>Zeus, Hera, Apollo, Athena, Hermes, Ares, Artemis, Hades, Persephone, Poseidon, Demeter, Dionysus, Hestia, Nemesis</td></tr>
+    <tr><td>Norse myth</td><td>Odin, Thor, Loki, Freya, Baldur, Heimdall, Frigg, Tyr, Skadi, Njord</td></tr>
+    <tr><td>Detective fiction</td><td>Holmes, Watson, Poirot, Marple, Columbo, Marlowe, Maigret, Dupin, Wimsey, Cadfael</td></tr>
+    <tr><td>Sci-fi</td><td>Spock, Kirk, Ripley, Trinity, Picard, Sarek, Neo, Solo, Sarah, Deckard, Rorschach</td></tr>
+    <tr><td>Classical composers</td><td>Bach, Mozart, Chopin, Handel, Vivaldi, Brahms, Liszt, Verdi, Dvorak, Sibelius</td></tr>
+    <tr><td>Chess</td><td>Fischer, Carlsen, Karpov, Tal, Anand, Nakamura, Nepo, Ding, Judit, Botvinnik</td></tr>
+    <tr><td>Mollywood</td><td>Ganga, Nagavalli, Dasan, Vijayan, Mannar, Velu, Pazhassi, Meenakshi, Kunjikka, Bhaskaran</td></tr>
+    <tr><td>Supervillains</td><td>Thanos, Joker, Venom, Ultron, Magneto, Vader, Bane, Sauron, Voldemort, Cruella</td></tr>
+    <tr><td>Sidekicks</td><td>Robin, Samwise, Ron, Pippin, Gimli, Alfred, Sancho, Tonto, Donkey, Chewie</td></tr>
+    <tr><td>Cricket legends</td><td>Sachin, Kohli, Dhoni, Gavaskar, Kapil, Dravid, Sehwag, Ganguly, Bumrah, Ashwin</td></tr>
+  </tbody>
+</table>
+
+<p>Note the <code>no word repeated across categories</code> rule is doing real work here —
+it is half of what makes the cross-project guarantee hold. It is a curation obligation, not
+something the running program verifies.</p>
+
+<div class="pager">
+  <a href="layout.html"><span class="lbl">Previous</span>← The Mosaic layout</a>
+  <a class="next" href="interactions.html"><span class="lbl">Next</span>Keyboard &amp; windows →</a>
+</div>
+
+</main>
+</div>
+</body>
+</html>

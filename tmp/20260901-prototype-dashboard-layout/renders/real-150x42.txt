@@ -1,0 +1,42 @@
+ ◆ opencode  · 4 projects · 8 sessions · ? 2 · ● 1 · ◐ 4 · ○ 1                                                                      window 10m  ● live
+ web-dashboard  3                              ? 1  ◐ 2  infra-tools  2                                                   ? 1  ○ 1  scratch-cli  1    
+ ? brave-otter         ◐ amber-falcon                    ? golden-hawk                                                              ◐ violet-otter    
+  question · 9m        editing: requirements.md           question · 6m                                                             shell: cargo      
+                       running · 3m · 11 calls                                                                                      bench             
+ ⋯                     ↳ cinder-wisp editing: render…    ⋯                                                                          run · 45s         
+ TitleEditor.old.tsx                                     aws_lb.staging                                                                               
+ — imported only by    Reviewing opencode dashboard      aws_s3_bucket.staging-assets (2.1 GB, versioning off)                      Prototype a       
+ the storybook story   requirements doc for session…     aws_iam_role.staging-task ×5                                               faster arg…       
+ 3. title-utils.ts —                                                                                                                                  
+ 2 helpers still       files: requirements.md,           The S3 bucket is not backed up. Confirm destroy of 12 resources in         files:            
+ used by               render.rs,…                       staging?                                                                   src/args.rs,…     
+ TitleBar.tsx          read: tasks/2026-09-01-openco…                                                                               read: src/main…   
+                       grep: R5.2                        you: tear down staging, we're rebuilding it from the new module            write: src/arg…   
+ Deleting 3 would      read: src/render.rs                                                                                          write: benches…   
+ break TitleBar.       shell: cargo build                Apply terraform destroy for staging, are you sure?                         shell: cargo b…   
+ Which file would      editing: render.rs                                                                                           shell: cargo b…   
+ you like me to        shell: cargo test -p dashboard                                                                                                 
+ delete?               read: tasks/2026-09-01-openco…                                                                                                 
+                       editing: layout-brainstorm.md    ○ hawk-otter · 51m                                                                            
+ you: Clean up the     shell: git diff --stat                                                                                                         
+ old title             read: BRIEF.md                    mobile-app  2                                                    ● 1  ◐ 1                    
+ components and…                                         ● quartz-badger      ◐ sable-heron                                                           
+                                                         Update app icon      editing: NotificationManager.swift                                      
+ Add multiple code                                       assets               running · 6m · 8 calls                                                  
+ titles with edit…                                       needs-you · 1m       ↳ pebble-owl editing: TokenStore.swift                                  
+                                                                              ↳ misty-vole running: xcodebuild test                                   
+                                                         ⋯                    ↳ ashen-crane reviewing: PushDelegate.swift                             
+                                                         Pro entries. Xcode                                                                           
+ ◐ extraordinarily-verbose-nickname-case                 build succeeds       Fix push notification token refresh                                     
+ running: cargo test --package payments-integration      with no warnings.                                                                            
+ running · 11m · 15 calls                                                     files: NotificationManager.swift,                                       
+                                                         Done.                TokenStore.swift, PushDelegate.swift,…                                  
+ Investigate why the CI pipeline intermittently fails                         read: AppDelegate.swift                                                 
+ on the integration test suite for the payments…         you: update the      read: NotificationManager.swift                                         
+                                                         app icon from the    editing: AppDelegate.swift                                              
+ files: payments/tests/integration.rs,                   new 1024 png in…     shell: xcodebuild -scheme App test -only-testing:…                      
+ ci/pipeline.yml                                                              read: TokenStore.swift                                                  
+ shell: cargo build --release                                                 subagent: 3 started                                                     
+                                                                                                                                                      
+                                                                                                                                                      
+q quit  w 80col  f fixture  +/- session  p project  . tick                                                                                            

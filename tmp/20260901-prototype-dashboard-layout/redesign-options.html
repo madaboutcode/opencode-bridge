@@ -1,0 +1,592 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>opencode dashboard — redesign options</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root { --fg:#c0caf5; --dim:#565f89; --bg:#1a1b26; --bgd:#16161e; --page:#0b0c12; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--page); color:var(--fg); font-family:'JetBrains Mono', ui-monospace, monospace; }
+  .top { display:flex; align-items:baseline; gap:18px; padding:14px 24px 6px; font-size:12px; color:var(--dim); }
+  .top .title { color:var(--fg); font-weight:700; }
+  .top #optname { color:#7aa2f7; font-weight:700; }
+  .top #thesis { flex:1; }
+  .ctl { display:flex; gap:6px; }
+  .ctl button { font:inherit; font-size:11px; background:transparent; color:var(--dim); border:1px solid #3b4261; border-radius:4px; padding:3px 8px; cursor:pointer; }
+  .ctl button.on { color:var(--fg); border-color:#7aa2f7; }
+  .stage { padding:8px 24px 0; overflow:auto; }
+  .term { display:inline-block; background:var(--bg); font-size:13px; line-height:17px; white-space:pre; border:1px solid #23253a; }
+  .term div { height:17px; }
+  .term .b { font-weight:700; }
+  section { display:none; }
+  section.on { display:block; }
+  .notes { padding:10px 24px 90px; max-width:1180px; font-size:12px; color:#a9b1d6; line-height:1.55; }
+  .notes h3 { margin:0 0 6px; font-size:12px; color:var(--fg); }
+  .notes ul { margin:0; padding-left:18px; }
+  .notes li { margin:2px 0; }
+  .notes .k { color:#7aa2f7; }
+  .notes .warn { color:#e0af68; }
+  .pills { position:fixed; right:22px; bottom:22px; display:flex; flex-direction:column; align-items:flex-end; gap:8px; z-index:50; }
+  .pills .row { display:flex; gap:8px; }
+  .pill { width:34px; height:34px; border-radius:50%; border:1px solid #3b4261; background:#16161e; color:#a9b1d6; font:700 13px 'JetBrains Mono', monospace; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+  .pill.on { background:#c0caf5; color:#16161e; border-color:#c0caf5; }
+  .pill:hover { border-color:#7aa2f7; }
+  .panel { display:none; background:#16161e; border:1px solid #3b4261; border-radius:6px; padding:10px 12px; font-size:11px; color:#a9b1d6; width:380px; }
+  .pills:hover .panel { display:block; }
+  .panel .cur { color:#c0caf5; font-weight:700; margin-bottom:6px; }
+  .panel .list div { padding:2px 0; }
+  .panel .list b { color:#7aa2f7; display:inline-block; width:18px; }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <span class="title">opencode dashboard · redesign options</span>
+  <span id="optname"></span>
+  <span id="thesis"></span>
+  <div class="ctl">
+    <button data-scale="real" class="on">real 4×2</button>
+    <button data-scale="stress">stress 8×54</button>
+    <span style="width:10px"></span>
+    <button data-vp="wide" class="on">150×42</button>
+    <button data-vp="narrow">80×36</button>
+    <button id="spin" class="on">spin</button>
+  </div>
+</div>
+
+<div class="stage">
+  <section id="opt-A" data-screen-label="A — Swimlanes (project rows × state columns)"><div class="term"></div></section>
+  <section id="opt-B" data-screen-label="B — Ledger (dense two-column list)"><div class="term"></div></section>
+  <section id="opt-C" data-screen-label="C — Mosaic (space-filling colour-field tiles)"><div class="term"></div></section>
+  <section id="opt-D" data-screen-label="D — Signal (exception-first)"><div class="term"></div></section>
+</div>
+<div class="notes" id="notes"></div>
+
+<div class="pills">
+  <div class="panel"><div class="cur"></div><div class="list"></div></div>
+  <div class="row">
+    <div class="pill" data-opt="A">A</div><div class="pill" data-opt="B">B</div>
+    <div class="pill" data-opt="C">C</div><div class="pill" data-opt="D">D</div>
+  </div>
+</div>
+
+<script>
+// ───────────────────────── palette (Tokyo Night, 24-bit) ─────────────────────────
+const C = { bg:'#1a1b26', bgD:'#16161e', bgH:'#292e42', border:'#3b4261', dim:'#565f89', fg:'#c0caf5', fgD:'#a9b1d6',
+  blue:'#7aa2f7', cyan:'#7dcfff', mag:'#bb9af7', red:'#f7768e', orange:'#ff9e64', yellow:'#e0af68', green:'#9ece6a', teal:'#73daca' };
+const ACCENT = [C.mag, C.green, C.cyan, C.orange, C.blue, C.teal];
+const acc = p => ACCENT[p.hue % ACCENT.length];
+// state → colour, glyph, tile background (for the colour-field option)
+const ST = {
+  q:    { c:C.red,    g:'?', label:'question',  tile:'#3d2230', tfg:C.red },
+  need: { c:C.yellow, g:'●', label:'needs-you', tile:'#3a2e1b', tfg:C.yellow },
+  run:  { c:C.blue,   g:'◐', label:'running',   tile:'#1f2d52', tfg:C.blue, spin:true },
+  idle: { c:C.dim,    g:'○', label:'idle',      tile:'#1e2030', tfg:C.dim },
+};
+const RANK = { q:0, need:1, run:2, idle:3 };
+const SPIN = ['◐','◓','◑','◒'];
+const SPARK = '▁▂▃▄▅▆▇█';
+
+// ───────────────────────── fixture (mirrors src/fixture.rs) ─────────────────────────
+const FLEET = ['runner-alpha','runner-beta','runner-gamma','runner-delta','runner-epsilon','runner-zeta','runner-eta','runner-theta'];
+const fleet = [];
+for (let i = 0; i < 22; i++) {
+  const n = FLEET[i % FLEET.length];
+  if (i % 7 === 0)       fleet.push({ n, t:'Investigate flaky runner shard', s:'need', e:(5+i)+'m', w:5+i });
+  else if (i % 11 === 0) fleet.push({ n, t:'Runner pool needs manual approval', s:'q', e:(2+i)+'m', w:2+i, a:'Scale runner pool to 40?' });
+  else if (i % 5 === 0)  fleet.push({ n, t:'Retired shard cleanup', s:'idle', e:'30m' });
+  else                   fleet.push({ n, t:'Run scheduled fleet health check', s:'run', e:'1m', a:'running: fleet-health-check.sh' });
+}
+// Real-scale fixture: what the dashboard actually shows most of the time (4 projects, ~2 sessions each, 8 total).
+const REAL = [
+  { name:'web-dashboard', hue:0, pulse:[2,3,5,7,6,3,1,2,5,7], sessions:[
+    { n:'amber-falcon', t:'Reviewing opencode dashboard requirements doc for session card layout', s:'run', e:'3m', a:'editing: requirements.md', sub:[{ n:'cinder-wisp', a:'editing: render.rs' }] },
+    { n:'brave-otter', t:'Add multiple code titles with edit support', s:'q', e:'9m', w:9, a:'Which file would you like me to delete?' },
+    { n:'extraordinarily-verbose-nickname-case', t:'Investigate why the CI pipeline intermittently fails on the integration test suite for the payments service when run under load on Tuesdays', s:'run', e:'11m', a:'running: cargo test --package payments-integration' },
+  ]},
+  { name:'infra-tools', hue:1, pulse:[1,1,2,4,3,2,6,7,4,2], sessions:[
+    { n:'golden-hawk', t:'Apply terraform destroy for staging, are you sure?', s:'q', e:'6m', w:6, a:'Confirm destroy of 12 resources in staging?' },
+    { n:'hawk-otter', t:'Rewrite deploy script', s:'idle', e:'51m' },
+  ]},
+  { name:'mobile-app', hue:4, pulse:[4,5,3,2,6,7,7,5,3,4], sessions:[
+    { n:'sable-heron', t:'Fix push notification token refresh', s:'run', e:'6m', a:'editing: NotificationManager.swift', sub:[
+      { n:'pebble-owl', a:'editing: TokenStore.swift' }, { n:'misty-vole', a:'running: xcodebuild test' }, { n:'ashen-crane', a:'reviewing: PushDelegate.swift' } ] },
+    { n:'quartz-badger', t:'Update app icon assets', s:'need', e:'1m', w:1 },
+  ]},
+  { name:'scratch-cli', hue:2, pulse:[0,0,0,0,0,1,3,6,7,7], sessions:[
+    { n:'violet-otter', t:'Prototype a faster arg parser', s:'run', e:'45s', a:'shell: cargo bench' },
+  ]},
+];
+// Stress fixture (mirrors src/fixture.rs): 8 projects, 54 sessions. Secondary "must not break badly" check.
+const STRESS = [
+  { name:'web-dashboard', hue:0, pulse:[2,3,5,7,6,3,1,2,5,7], sessions:[
+    { n:'amber-falcon', t:'Reviewing opencode dashboard requirements doc for session card layout', s:'run', e:'3m', a:'editing: requirements.md', sub:[{ n:'cinder-wisp', a:'editing: render.rs' }] },
+    { n:'brave-otter', t:'Add multiple code titles with edit support', s:'q', e:'9m', w:9, a:'Which file would you like me to delete?' },
+    { n:'extraordinarily-verbose-nickname-case', t:'Investigate why the CI pipeline intermittently fails on the integration test suite for the payments service when run under load on Tuesdays', s:'run', e:'11m', a:'running: cargo test --package payments-integration' },
+    { n:'cobalt-wren', t:'Resolve dashboard branch merge conflict', s:'need', e:'22m', w:22 },
+    { n:'dusty-lynx', t:'Update footer legend copy', s:'idle', e:'12m' },
+  ]},
+  { name:'infra-tools', hue:1, pulse:[1,1,2,4,3,2,6,7,4,2], sessions:[
+    { n:'silver-marlin', t:'Plan terraform infra changes', s:'run', e:'1m', a:'running: terraform plan' },
+    { n:'ember-quail', t:'Rotate staging API keys', s:'need', e:'4m', w:4 },
+    { n:'golden-hawk', t:'Apply terraform destroy for staging, are you sure?', s:'q', e:'6m', w:6, a:'Confirm destroy of 12 resources in staging?' },
+    { n:'hawk-otter', t:'Rewrite deploy script', s:'idle', e:'51m' },
+  ]},
+  { name:'scratch-cli', hue:2, pulse:[0,0,0,0,0,1,3,6,7,7], sessions:[
+    { n:'violet-otter', t:'Prototype a faster arg parser', s:'run', e:'45s', a:'shell: cargo bench' },
+  ]},
+  { name:'docs-site', hue:3, pulse:[0,0,0,0,0,0,0,0,0,0], sessions:[
+    { n:'quartz-badger', t:'Fix broken anchor links', s:'idle', e:'2h' },
+    { n:'copper-hawk', t:'Update install instructions', s:'idle', e:'40m' },
+    { n:'marble-finch', t:'Regenerate API reference', s:'idle', e:'3h' },
+    { n:'linen-otter', t:'Proofread changelog', s:'idle', e:'18m' },
+  ]},
+  { name:'mobile-app', hue:4, pulse:[4,5,3,2,6,7,7,5,3,4], sessions:[
+    { n:'sable-heron', t:'Fix push notification token refresh', s:'run', e:'6m', a:'editing: NotificationManager.swift', sub:[
+      { n:'pebble-owl', a:'editing: TokenStore.swift' }, { n:'misty-vole', a:'running: xcodebuild test' }, { n:'ashen-crane', a:'reviewing: PushDelegate.swift' } ] },
+    { n:'quartz-badger', t:'Update app icon assets', s:'need', e:'1m', w:1 },
+    { n:'willow-stag', t:'Bump minimum iOS deployment target', s:'q', e:'3m', w:3, a:'OK to drop iOS 15 support?' },
+    { n:'flint-osprey', t:'Wire up crash reporting SDK', s:'run', e:'2m', a:'running: pod install' },
+    { n:'brass-heron', t:'Localize onboarding screens', s:'idle', e:'35m' },
+    { n:'cider-fox', t:'Audit accessibility labels', s:'idle', e:'1h' },
+  ]},
+  { name:'big-monorepo', hue:5, pulse:[6,7,7,6,7,5,6,7,7,6], sessions:[
+    { n:'north-tiger', t:'Refactor build graph', s:'run', e:'1m', a:'running: bazel build //...' },
+    { n:'east-lynx', t:'Fix flaky e2e test', s:'run', e:'2m', a:'running: pnpm test:e2e' },
+    { n:'south-heron', t:'Upgrade eslint config', s:'run', e:'4m', a:'editing: .eslintrc.js' },
+    { n:'west-badger', t:'Bump typescript version', s:'run', e:'5m', a:'running: tsc --noEmit' },
+    { n:'cinder-wolf', t:'Split monolith service', s:'q', e:'7m', w:7, a:'Which service owns the billing table?' },
+    { n:'moss-otter', t:'Fix CI cache key', s:'need', e:'9m', w:9, sub:[{ n:'quiet-lark', a:'running: cache-key-diff.sh' }] },
+    { n:'plum-heron', t:'Add integration test for webhooks', s:'run', e:'3m', a:'editing: webhooks.test.ts' },
+    { n:'amber-stag', t:'Clean up dead feature flags', s:'need', e:'16m', w:16 },
+    { n:'teal-mole', t:'Rebalance sharded queues', s:'run', e:'8m', a:'shell: kubectl get pods -w' },
+    { n:'rust-crane', t:'Archive old migrations', s:'idle', e:'25m' },
+    { n:'frost-wren', t:'Tidy up README', s:'idle', e:'50m' },
+  ]},
+  { name:'ci-fleet-runner', hue:0, pulse:[7,7,6,7,7,7,6,7,7,7], sessions: fleet },
+  { name:'tiny-service', hue:2, pulse:[0,0,1,0,0,0,0,0,0,0], sessions:[
+    { n:'ivory-crane', t:'Bump lockfile', s:'idle', e:'5m' },
+  ]},
+];
+let DATA = REAL;
+
+// ───────────────────────── character-grid screen (the honest medium) ─────────────────────────
+class Screen {
+  constructor(w, h) {
+    this.w = w; this.h = h; this.c = [];
+    for (let y = 0; y < h; y++) { const r = []; for (let x = 0; x < w; x++) r.push({ ch:' ', fg:C.fg, bg:C.bg, b:false, spin:false }); this.c.push(r); }
+  }
+  put(x, y, s, st = {}) {
+    if (y < 0 || y >= this.h || s == null) return;
+    const chars = [...String(s)];
+    for (let i = 0; i < chars.length; i++) {
+      const xx = x + i; if (xx < 0 || xx >= this.w) continue;
+      const cell = this.c[y][xx]; cell.ch = chars[i];
+      if (st.fg) cell.fg = st.fg; if (st.bg) cell.bg = st.bg; cell.b = !!st.b; cell.spin = !!st.spin;
+    }
+  }
+  fill(x, y, w, h, bg) {
+    for (let yy = y; yy < y + h; yy++) for (let xx = x; xx < x + w; xx++) {
+      if (yy < 0 || yy >= this.h || xx < 0 || xx >= this.w) continue;
+      const cell = this.c[yy][xx]; cell.ch = ' '; cell.bg = bg; cell.b = false; cell.spin = false;
+    }
+  }
+  hline(x, y, w, st, ch = '─') { this.put(x, y, ch.repeat(Math.max(0, w)), st); }
+  html() {
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    let out = '';
+    for (const row of this.c) {
+      let line = '', run = null;
+      const flush = () => { if (!run) return; line += `<span style="color:${run.fg};background:${run.bg}" class="${run.b?'b':''}${run.spin?' spin':''}">${esc(run.t)}</span>`; };
+      for (const cell of row) {
+        if (run && run.fg === cell.fg && run.bg === cell.bg && run.b === cell.b && run.spin === cell.spin && !cell.spin) run.t += cell.ch;
+        else { flush(); run = { fg:cell.fg, bg:cell.bg, b:cell.b, spin:cell.spin, t:cell.ch }; }
+      }
+      flush(); out += `<div>${line}</div>`;
+    }
+    return out;
+  }
+}
+const len = s => [...String(s)].length;
+const tr = (s, n) => { s = String(s); if (n <= 0) return ''; if (len(s) <= n) return s; if (n === 1) return '…'; return [...s].slice(0, n - 1).join('') + '…'; };
+const padR = (s, n) => { s = tr(s, n); return s + ' '.repeat(Math.max(0, n - len(s))); };
+const padL = (s, n) => { s = tr(s, n); return ' '.repeat(Math.max(0, n - len(s))) + s; };
+const sorted = ss => [...ss].sort((a, b) => RANK[a.s] - RANK[b.s] || ((b.w || 0) - (a.w || 0)));
+const counts = ss => ss.reduce((c, s) => (c[s.s]++, c), { q:0, need:0, run:0, idle:0 });
+const statusText = s => ({ q:'question · ', need:'needs-you · ', run:'running · ', idle:'idle · ' })[s.s] + s.e;
+const contentOf = s => s.s === 'q' || s.s === 'run' ? s.a : s.t;
+const spark = p => p.pulse.map(v => SPARK[Math.max(0, Math.min(7, v))]).join('');
+const cntText = (c, sep = ' · ') => [c.q + c.need ? (c.q + c.need) + ' need' : '', c.run ? c.run + ' run' : '', c.idle ? c.idle + ' idle' : ''].filter(Boolean).join(sep);
+
+// puts a status glyph (spinning if running) then text
+function glyphText(S, x, y, s, text, st) {
+  const d = ST[s.s];
+  S.put(x, y, d.g, { fg: st.fg || d.c, bg: st.bg, b: st.b, spin: !!d.spin });
+  S.put(x + 2, y, text, st);
+}
+
+// shared header / footer, identical across options so only the body is being compared
+function chrome(S, W, H) {
+  const all = DATA.flatMap(p => p.sessions); const c = counts(all);
+  S.fill(0, 0, W, 1, C.bgD); S.fill(0, H - 1, W, 1, C.bgD);
+  S.put(1, 0, '◆ opencode', { fg:C.blue, b:true, bg:C.bgD });
+  let x = 13;
+  const seg = (t, fg, b) => { S.put(x, 0, t, { fg, bg:C.bgD, b }); x += len(t); };
+  seg(W < 100 ? `${all.length} sessions  ` : `${DATA.length} projects · ${all.length} sessions   `, C.dim);
+  seg(`? ${c.q}`, C.red, true); seg('  ', C.dim); seg(`● ${c.need}`, C.yellow, true); seg('  ', C.dim);
+  S.put(x, 0, '◐', { fg:C.blue, bg:C.bgD, b:true, spin:true }); x += 2; seg(`${c.run}`, C.blue, true); seg('  ', C.dim); seg(`○ ${c.idle}`, C.dim, true);
+  const right = W < 100 ? '10m ● live ' : 'window 10m   ● live ';
+  S.put(W - len(right) - 1, 0, right, { fg:C.dim, bg:C.bgD }); S.put(W - 8, 0, '●', { fg:C.green, bg:C.bgD });
+  const keys = ' j/k move   ↵ zoom   [ ] window ±5m   a all   ? help';
+  S.put(0, H - 1, tr(keys, W - 1), { fg:C.dim, bg:C.bgD });
+}
+
+// 3-line borderless "rail" card: ▎ nick · tail / content / status. Used by A and D.
+function railCard(S, x, y, w, s, opts = {}) {
+  const d = ST[s.s]; const tw = w - 2;
+  for (let i = 0; i < 3; i++) S.put(x, y + i, '▎', { fg:d.c });
+  const nick = tr(s.n, Math.min(16, tw));
+  S.put(x + 1, y, nick, { fg:d.c, b:true });
+  const rest = tw - len(nick) - 1;
+  if (rest > 3) {
+    const tail = opts.project ? opts.project.name : s.t;
+    S.put(x + 2 + len(nick), y, tr(tail, rest), { fg: opts.project ? acc(opts.project) : C.dim });
+  }
+  S.put(x + 1, y + 1, tr(contentOf(s), tw), { fg: s.s === 'q' ? C.fg : C.fgD });
+  if (s.s === 'q') {
+    S.put(x + 1, y + 2, tr(' ? ' + statusText(s) + ' ', tw), { fg:C.bgD, bg:C.red, b:true });
+  } else {
+    let txt = statusText(s);
+    glyphText(S, x + 1, y + 2, s, tr(txt, tw - 2), { fg:d.c });
+    if (s.sub && s.sub.length && tw - 2 - len(txt) > 6) {
+      const sx = x + 3 + len(txt) + 1;
+      const tag = s.sub.length > 1 ? `↳${s.sub.length} ` : '↳ ';
+      S.put(sx, y + 2, tag, { fg:C.cyan, b:true });
+      S.put(sx + len(tag), y + 2, tr(s.sub[s.sub.length - 1].a, x + w - sx - len(tag)), { fg:C.cyan });
+    }
+  }
+}
+
+// ═════════════════════════ A — Swimlanes ═════════════════════════
+function layoutA(S, W, H) {
+  const narrow = W < 100, top = 1, bottom = H - 1;
+  const G = narrow ? 14 : 18, R = W - G, idleW = narrow ? 0 : 22;
+  const needW = Math.floor((R - idleW) * 0.44), runW = R - idleW - needW;
+  const xN = G, xR = G + needW, xI = xR + runW;
+  const all = counts(DATA.flatMap(p => p.sessions));
+  let y = top;
+  S.put(1, y, 'PROJECT', { fg:C.dim, b:true });
+  S.put(xN, y, '? NEEDS YOU', { fg:C.red, b:true }); S.put(xN + 12, y, String(all.q + all.need), { fg:C.dim });
+  S.put(xR, y, '◐', { fg:C.blue, b:true, spin:true }); S.put(xR + 2, y, 'RUNNING', { fg:C.blue, b:true }); S.put(xR + 10, y, String(all.run), { fg:C.dim });
+  if (!narrow) { S.put(xI, y, '○ IDLE', { fg:C.dim, b:true }); S.put(xI + 7, y, String(all.idle), { fg:C.dim }); }
+  y++; S.hline(0, y, W, { fg:C.border }); y++;
+  const minCard = 24;
+  const perN = Math.max(1, Math.floor(needW / minCard)), perR = Math.max(1, Math.floor(runW / minCard));
+  const cardN = Math.floor(needW / perN), cardR = Math.floor(runW / perR);
+  const avail = bottom - y;
+  const plan = (p, cap) => {
+    const ss = sorted(p.sessions);
+    const need = ss.filter(s => s.s === 'q' || s.s === 'need'), run = ss.filter(s => s.s === 'run'), idle = ss.filter(s => s.s === 'idle');
+    const rowsN = Math.ceil(need.length / perN), rowsR = Math.ceil(run.length / perR);
+    const hN = Math.min(rowsN, cap) * 3 + (rowsN > cap ? 1 : 0), hR = Math.min(rowsR, cap) * 3 + (rowsR > cap ? 1 : 0);
+    const idleCap = cap * 3; const hI = narrow ? 0 : Math.min(idle.length, idleCap) + (idle.length > idleCap ? 1 : 0);
+    const onlyIdle = need.length + run.length === 0;
+    const h = onlyIdle ? 2 : Math.max(3, hN, hR, hI);
+    return { p, need, run, idle, h, rowsN, rowsR, onlyIdle, cap, over: rowsN > cap || rowsR > cap };
+  };
+  // per-band cap: start at 1 row, then grow the bands that overflow (needs-you first) while the screen has room
+  let bands = DATA.map(p => plan(p, 1));
+  const total = () => bands.reduce((a, b) => a + b.h + 1, 0);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const order = bands.map((b, i) => i).filter(i => bands[i].over).sort((i, j) => (bands[j].rowsN - bands[j].cap) - (bands[i].rowsN - bands[i].cap));
+    for (const i of order) {
+      const trial = plan(bands[i].p, bands[i].cap + 1);
+      if (total() - bands[i].h + trial.h <= avail) { bands[i] = trial; grew = true; break; }
+    }
+  }
+  bands.forEach((b, bi) => {
+    if (y + b.h > bottom) { const yy = Math.min(y, bottom - 1); S.hline(0, yy, W, { fg:C.bg }, ' '); S.put(1, yy, `⋯ +${bands.length - bi} projects: ${bands.slice(bi).map(x => x.p.name).join(', ')}`, { fg:C.dim }); y = bottom; return; }
+    const p = b.p, a = acc(p);
+    S.put(0, y, '▍', { fg:a }); S.put(1, y, tr(p.name, G - 2), { fg:a, b:true });
+    // composition bar: one block per session, sorted, coloured by state (5 vs 4 is countable)
+    const ss = sorted(p.sessions); const maxB = G - 2;
+    ss.slice(0, maxB).forEach((s, i) => S.put(1 + i, y + 1, '▇', { fg:ST[s.s].c }));
+    if (ss.length > maxB) S.put(G - 1, y + 1, '›', { fg:C.dim });
+    if (!b.onlyIdle) S.put(1, y + 2, `${p.sessions.length} sessions`, { fg:C.dim });
+    if (b.onlyIdle) {
+      S.put(xN, y, `all idle · ${b.idle.length} sessions · last ${b.idle[b.idle.length - 1].e}`, { fg:C.dim });
+    } else {
+      const cap = b.cap;
+      b.need.forEach((s, i) => { const r = Math.floor(i / perN); if (r < cap) railCard(S, xN + (i % perN) * cardN, y + r * 3, cardN - 1, s); });
+      if (b.rowsN > cap) S.put(xN + 1, y + cap * 3, `+${b.need.length - cap * perN} more waiting`, { fg:C.yellow });
+      b.run.forEach((s, i) => { const r = Math.floor(i / perR); if (r < cap) railCard(S, xR + (i % perR) * cardR, y + r * 3, cardR - 1, s); });
+      if (b.rowsR > cap) S.put(xR + 1, y + cap * 3, `+${b.run.length - cap * perR} more running`, { fg:C.blue });
+      if (!narrow) {
+        const lim = b.idle.length > b.h ? b.h - 1 : b.idle.length;
+        b.idle.slice(0, lim).forEach((s, i) => glyphText(S, xI, y + i, s, tr(`${s.n} ${s.e}`, idleW - 3), { fg:C.dim }));
+        if (b.idle.length > lim) S.put(xI + 2, y + lim, `+${b.idle.length - lim} idle`, { fg:C.dim });
+      } else if (b.idle.length) S.put(1, y + 2, tr(`${p.sessions.length} · ${b.idle.length} idle`, G - 2), { fg:C.dim });
+    }
+    y += b.h; S.hline(0, y, W, { fg:C.bgH }); y++;
+  });
+}
+
+// ═════════════════════════ B — Ledger ═════════════════════════
+function layoutB(S, W, H) {
+  const narrow = W < 100, cols = narrow ? 1 : 2, gap = 3;
+  const CW = Math.floor((W - 2 - (cols - 1) * gap) / cols);
+  const top = 1, bottom = H - 1, avail = bottom - top;
+  const nickW = 14, eW = 4;
+  const contentW = CW - 2 - 2 - nickW - 1 - eW - 1;
+  function block(p, cap, summaryOnly) {
+    const a = acc(p), ss = sorted(p.sessions), c = counts(ss), lines = [];
+    lines.push((x, y) => {
+      S.put(x, y, '▍', { fg:a }); S.put(x + 1, y, p.name, { fg:a, b:true });
+      let bx = x + 2 + len(p.name);
+      ss.slice(0, 24).forEach((s, i) => S.put(bx + i, y, '▇', { fg:ST[s.s].c })); bx += Math.min(ss.length, 24);
+      if (ss.length > 24) { S.put(bx, y, '›', { fg:C.dim }); bx++; }
+      S.put(bx + 1, y, String(ss.length), { fg:C.fg, b:true });
+      const sp = spark(p), ct = cntText(c);
+      const rightTxt = ct + '  ' + sp;
+      if (bx + 4 + len(rightTxt) <= x + CW) { S.put(x + CW - len(rightTxt), y, ct, { fg:C.dim }); S.put(x + CW - len(sp), y, sp, { fg:c.run ? C.blue : C.dim }); }
+    });
+    if (summaryOnly) return lines;
+    const need = ss.filter(s => s.s !== 'run' && s.s !== 'idle'), run = ss.filter(s => s.s === 'run'), idle = ss.filter(s => s.s === 'idle');
+    const line = s => (x, y) => {
+      const d = ST[s.s];
+      glyphText(S, x + 2, y, s, padR(s.n, nickW), { fg: s.s === 'idle' ? C.dim : d.c, b: s.s !== 'idle' });
+      const ctext = contentOf(s);
+      S.put(x + 4 + nickW + 1, y, tr(ctext, contentW), { fg: s.s === 'q' ? C.fg : s.s === 'idle' ? C.dim : C.fgD });
+      S.put(x + CW - eW, y, padL(s.e, eW), { fg: s.s === 'q' ? C.red : C.dim, b: s.s === 'q' });
+    };
+    const subLine = sb => (x, y) => { S.put(x + 6, y, '↳', { fg:C.cyan, b:true }); S.put(x + 8, y, tr(`${sb.n}  ${sb.a}`, CW - 8), { fg:C.cyan }); };
+    let budget = cap, hidR = 0, hidI = 0;
+    need.forEach(s => { lines.push(line(s)); (s.sub || []).forEach(sb => lines.push(subLine(sb))); });
+    budget -= lines.length - 1;
+    run.forEach(s => { const cost = 1 + (s.sub || []).length; if (budget - cost >= (idle.length ? 1 : 0)) { lines.push(line(s)); (s.sub || []).forEach(sb => lines.push(subLine(sb))); budget -= cost; } else hidR++; });
+    if (idle.length <= 2 && budget >= idle.length && !hidR) idle.forEach(s => lines.push(line(s)));
+    else hidI = idle.length;
+    if (hidR || hidI) lines.push((x, y) => S.put(x + 2, y, tr('⋯ ' + [hidR ? `+${hidR} running` : '', hidI ? `+${hidI} idle` : ''].filter(Boolean).join(' · '), CW - 2), { fg:C.dim }));
+    return lines;
+  }
+  // masonry placement (shortest column first, stable fixture order); returns null if a block doesn't fit
+  const place = blocks => {
+    const colH = new Array(cols).fill(top), out = [];
+    for (let i = 0; i < blocks.length; i++) {
+      let k = 0; for (let c = 1; c < cols; c++) if (colH[c] < colH[k]) k = c;
+      if (colH[k] + blocks[i].length > bottom) return null;
+      out.push({ k, y: colH[k] }); colH[k] += blocks[i].length + 1;
+    }
+    return out;
+  };
+  // ladder: largest per-project cap (up to 24 lines) that fits → cap 4 → header-only summaries for the tallest projects
+  let blocks = null, pos = null; const summary = new Set();
+  for (let round = 0; round <= DATA.length && !pos; round++) {
+    for (let cap = 24; cap >= 4 && !pos; cap--) { blocks = DATA.map((p, i) => block(p, cap, summary.has(i))); pos = place(blocks); }
+    if (!pos) { const tallest = blocks.map((b, i) => [b.length, i]).filter(([, i]) => !summary.has(i)).sort((a, b) => b[0] - a[0])[0]; if (!tallest) break; summary.add(tallest[1]); }
+  }
+  const hidden = [];
+  if (!pos) { pos = []; const colH = new Array(cols).fill(top); blocks.forEach((b, i) => { let k = 0; for (let c = 1; c < cols; c++) if (colH[c] < colH[k]) k = c; if (colH[k] + b.length > bottom) { hidden.push(DATA[i].name); pos.push(null); } else { pos.push({ k, y: colH[k] }); colH[k] += b.length + 1; } }); }
+  blocks.forEach((b, i) => {
+    if (!pos[i]) return;
+    const { k, y } = pos[i], x = 1 + k * (CW + gap);
+    if (y > top) S.hline(x, y - 1, CW, { fg:C.bgH });
+    b.forEach((fn, j) => fn(x, y + j));
+  });
+  if (cols > 1) for (let y = top; y < bottom; y++) S.put(1 + CW + 1, y, '│', { fg:C.bgH });
+  if (hidden.length) S.put(2, bottom - 1, tr(`⋯ +${hidden.length} projects: ${hidden.join(', ')}`, W - 4), { fg:C.dim });
+}
+
+// ═════════════════════════ C — Mosaic ═════════════════════════
+function squarify(weights, X, Y, Wd, Ht, keepOrder = false) {
+  const idx = weights.map((w, i) => i); if (!keepOrder) idx.sort((a, b) => weights[b] - weights[a]);
+  const total = weights.reduce((a, b) => a + b, 0), scale = Wd * Ht / total, out = new Array(weights.length);
+  const worst = (row, side) => { const ar = row.map(k => weights[k] * scale); const s = ar.reduce((a, b) => a + b, 0); const s2 = side * side; return Math.max(s2 * Math.max(...ar) / (s * s), (s * s) / (s2 * Math.min(...ar))); };
+  let x = X, y = Y, w = Wd, h = Ht, i = 0;
+  while (i < idx.length) {
+    const side = Math.max(1e-6, Math.min(w, h)); let row = [], best = Infinity, j = i;
+    while (j < idx.length) { const cand = [...row, idx[j]]; const wr = worst(cand, side); if (row.length === 0 || wr <= best) { row = cand; best = wr; j++; } else break; }
+    const area = row.reduce((a, k) => a + weights[k] * scale, 0);
+    if (w >= h) { const cw = area / h; let yy = y; for (const k of row) { const hh = weights[k] * scale / cw; out[k] = { x, y:yy, w:cw, h:hh }; yy += hh; } x += cw; w -= cw; }
+    else { const rh = area / w; let xx = x; for (const k of row) { const ww = weights[k] * scale / rh; out[k] = { x:xx, y, w:ww, h:rh }; xx += ww; } y += rh; h -= rh; }
+    i = j;
+  }
+  return out;
+}
+// cells are ~1:2 (w:h) so squarify in a space where rows count double, then snap to the grid
+function squarifyCells(weights, x, y, w, h, keepOrder = false) {
+  return squarify(weights, x, y * 2, w, h * 2, keepOrder).map(r => {
+    const rx = Math.round(r.x), ry = Math.round(r.y / 2);
+    return { x:rx, y:ry, w:Math.round(r.x + r.w) - rx, h:Math.round((r.y + r.h) / 2) - ry };
+  });
+}
+function layoutC(S, W, H) {
+  const top = 1, bottom = H - 1;
+  S.fill(0, top, W, bottom - top, C.bgD);
+  // keepOrder: projects tile in first-appearance order, never re-sorted by weight (R5.7 stable slots)
+  const rects = squarifyCells(DATA.map(p => p.sessions.length), 0, top, W, bottom - top, true);
+  DATA.forEach((p, i) => {
+    const r = rects[i]; const a = acc(p);
+    const w = r.w - 1, h = r.h - 1; if (w < 3 || h < 1) return;
+    S.fill(r.x, r.y, w, h, C.bg);
+    const tag = ' ' + tr(p.name, w - 2) + ' ';
+    S.put(r.x, r.y, tag, { fg:C.bgD, bg:a, b:true });
+    if (w > len(tag) + 3) S.put(r.x + len(tag) + 1, r.y, String(p.sessions.length), { fg:C.dim, b:true });
+    if (h < 2) return;
+    const wt = p.sessions.map(s => ({ q:4, need:3, run:2, idle:1 })[s.s] + (s.sub ? s.sub.length * 0.5 : 0));
+    const tiles = squarifyCells(wt, r.x, r.y + 1, w, h - 1);
+    p.sessions.forEach((s, k) => tile(S, tiles[k], s));
+  });
+  function tile(S, t, s) {
+    const d = ST[s.s]; const tw = t.w > 1 ? t.w - 1 : t.w, th = t.h > 1 ? t.h - 1 : t.h;
+    if (tw < 1 || th < 1) return;
+    S.fill(t.x, t.y, tw, th, d.tile);
+    const fg = d.tfg, bg = d.tile, body = s.s === 'q' ? C.fg : C.fgD, x = t.x + 1, iw = tw - 2;
+    if (iw < 1) { if (tw >= 1) S.put(t.x, t.y, d.g, { fg, bg, spin: !!d.spin }); return; }
+    if (tw < 3) return; // colour sliver only
+    const status = (xx, yy, w) => s.s === 'q' ? S.put(xx, yy, tr(' ? ' + statusText(s) + ' ', w), { fg:C.bgD, bg:C.red, b:true }) : S.put(xx, yy, tr(statusText(s), w), { fg, bg });
+    if (th >= 3 && iw >= 12) {
+      glyphText(S, x, t.y, s, tr(s.n, iw - 2), { fg, bg, b:true });
+      S.put(x, t.y + 1, tr(contentOf(s), iw), { fg:body, bg });
+      status(x, t.y + 2, iw);
+      let ly = t.y + 3;
+      // taller tiles earn more lines: subagents, then the wire title, then a blank rhythm line
+      if (s.sub && s.sub.length) for (const sb of (th - 3 >= s.sub.length + 1 ? s.sub : s.sub.slice(-1))) { if (ly < t.y + th) S.put(x, ly++, tr(`↳ ${sb.n} ${sb.a}`, iw), { fg:C.cyan, bg }); }
+      if (ly < t.y + th && (s.s === 'q' || s.s === 'run')) { if (ly < t.y + th - 1) ly++; S.put(x, ly++, tr(s.t, iw), { fg:C.dim, bg }); }
+    } else if (th >= 2 && iw >= 8) {
+      glyphText(S, x, t.y, s, tr(s.n, iw - 2), { fg, bg, b:true });
+      status(x, t.y + 1, iw);
+    } else if (iw >= 10) {
+      glyphText(S, x, t.y, s, tr(`${s.n} · ${s.e}`, iw - 2), { fg, bg, b:true });
+    } else if (iw >= 4) {
+      glyphText(S, x, t.y, s, tr(s.e, iw - 2), { fg, bg, b:true });
+    } else {
+      S.put(x, t.y, d.g, { fg, bg, spin: !!d.spin });
+    }
+  }
+}
+
+// ═════════════════════════ D — Signal ═════════════════════════
+function layoutD(S, W, H) {
+  const narrow = W < 100, top = 1, bottom = H - 1;
+  const allS = DATA.flatMap(p => p.sessions.map(s => ({ ...s, p }))), c = counts(allS);
+  const need = sorted(allS).filter(s => s.s === 'q' || s.s === 'need'), run = sorted(allS).filter(s => s.s === 'run');
+  let y = top;
+  const zone = (title, n, color) => { S.put(1, y, '▍', { fg:color }); S.put(2, y, title, { fg:color, b:true }); S.put(3 + len(title), y, String(n), { fg:C.dim }); S.hline(5 + len(title) + len(String(n)), y, W - 6 - len(title) - len(String(n)), { fg:C.bgH }); y++; };
+  // zone 1 — needs you
+  zone('NEEDS YOU', need.length, C.red);
+  const cardW = narrow ? Math.floor((W - 2) / 2) : 30, per = Math.max(1, Math.floor((W - 2) / cardW));
+  const projLines = DATA.length + 1, runCap = 99;
+  const spaceForCards = bottom - y - 2 - projLines - 2 - Math.min(run.length, 4);
+  const capRows = Math.max(1, Math.min(Math.ceil(need.length / per), Math.floor(spaceForCards / 3)));
+  need.forEach((s, i) => { const r = Math.floor(i / per); if (r < capRows) railCard(S, 1 + (i % per) * cardW, y + r * 3, cardW - 1, s, { project:s.p }); });
+  y += capRows * 3;
+  if (need.length > capRows * per) { S.put(2, y, `+${need.length - capRows * per} more waiting on you`, { fg:C.yellow }); y++; }
+  y++;
+  // zone 2 — running, one line each, two columns
+  zone('RUNNING', run.length, C.blue);
+  const rcols = narrow ? 1 : 2, RW = Math.floor((W - 2) / rcols);
+  const rowsAvail = Math.max(1, Math.min(runCap, bottom - y - projLines - 2));
+  const shown = Math.min(run.length, rowsAvail * rcols);
+  for (let i = 0; i < shown; i++) {
+    const s = run[i], x = 1 + Math.floor(i / rowsAvail) * RW, yy = y + (i % rowsAvail);
+    glyphText(S, x + 1, yy, s, padR(s.n, 14), { fg:C.blue, b:true });
+    S.put(x + 18, yy, padR(s.p.name, 14), { fg:acc(s.p) });
+    const subTag = s.sub && s.sub.length ? ` ↳${s.sub.length}` : '';
+    const aw = RW - 18 - 15 - 5 - len(subTag);
+    S.put(x + 33, yy, tr(s.a, aw), { fg:C.fgD });
+    if (subTag) S.put(x + 33 + Math.min(len(s.a), aw), yy, subTag, { fg:C.cyan, b:true });
+    S.put(x + RW - 5, yy, padL(s.e, 4), { fg:C.dim });
+  }
+  y += Math.min(shown, rowsAvail);
+  if (run.length > shown) { S.put(2, y, `⋯ +${run.length - shown} more running`, { fg:C.dim }); y++; }
+  y++;
+  // zone 3 — projects index: one line each, every session is a glyph
+  zone('PROJECTS', DATA.length, C.mag);
+  const nameW = 16;
+  DATA.forEach(p => {
+    if (y >= bottom) return;
+    const ss = sorted(p.sessions), pc = counts(ss), a = acc(p);
+    S.put(1, y, '▍', { fg:a }); S.put(2, y, padR(p.name, nameW), { fg:a, b:true });
+    let x = 3 + nameW; const maxG = narrow ? 12 : 24;
+    ss.slice(0, maxG).forEach((s, i) => S.put(x + i, y, ST[s.s].g, { fg:ST[s.s].c, b: s.s === 'q', spin: !!ST[s.s].spin }));
+    if (ss.length > maxG) S.put(x + maxG, y, '›', { fg:C.dim });
+    x += maxG + 2;
+    S.put(x, y, padL(String(ss.length), 2), { fg:C.fg, b:true }); x += 4;
+    S.put(x, y, spark(p), { fg: pc.run ? C.blue : C.dim }); x += 12;
+    S.put(x, y, tr(cntText(pc), W - x - 1), { fg:C.dim });
+    y++;
+  });
+}
+
+// ───────────────────────── option registry, notes, switcher ─────────────────────────
+const OPTS = {
+  A: { name:'Swimlanes', fn:layoutA, thesis:'Right when the first question is always "what needs me?" but you still think in projects — rows are projects, columns are states, so urgency is one vertical scan and busyness is row height.', worst:'Worst when most projects are 1–2 sessions: rows get short and the column grid feels like an empty spreadsheet.',
+    notes:[ 'Project = horizontal band, state = column. Needs-you always lives in the left column, so "anything waiting on me?" is one downward glance regardless of which project it belongs to.',
+      'Busyness is encoded as <span class="k">row height</span> plus the block bar under the name (one ▇ per session, coloured by state, sorted). People compare lengths far better than areas; 5 vs 4 blocks is countable, 5 vs 4 area is not.',
+      'Cards are borderless: a coloured ▎ rail + 3 lines (identity / content / status). Question sessions get an inverse-video badge on line 3 — the loudest thing a terminal can draw without animation.',
+      'Idle is a narrow one-line-per-session column (glyph + nickname + age) — still conveys state; folds into the gutter count at 80 cols.',
+      'Ladder: 2 card-rows per cell → 1 card-row → "+N more" line. All-idle projects collapse to a 2-line band. Extra projects beyond the viewport become "⋯ +N projects". Never a blank cliff.',
+      '<span class="warn">Deviates from R5/R5.7 spirit:</span> project position is stable (fixture order), but a project\'s band grows/shrinks as its session count changes, shifting bands below it.' ] },
+  B: { name:'Ledger', fn:layoutB, thesis:'Right when you want maximum density and a terminal-native feel: one line per session, project header carries the composition bar, two newspaper columns. Reads like htop/k9s, not like a web dashboard.', worst:'Worst when you want to *see* "how much is going on" as shape — it is a list; busyness is a bar length in a header line, not a big box.',
+    notes:[ 'One line per session: glyph · nickname · content (question / action / title) · age. A collapsed session is still a complete sentence about its state — no truncated-nickname-and-nothing.',
+      'Project header = accent rail + name + <span class="k">composition bar</span> (one ▇ per session) + count + right-aligned status counts + a 10-minute activity sparkline (SSE tool-events per minute, cheap to keep client-side).',
+      'Subagents are indented ↳ children in cyan under their parent — the hierarchy reads without any extra chrome.',
+      'Two columns filled masonry-style (shortest column first, fixture order kept) so no column ends with a big blank.',
+      'Ladder: 10 lines/project → 4 → header-only summary for the tallest projects → "⋯ +N projects". Every step still shows the bar and counts.',
+      'Try 80×36: this is the direction that survives narrow terminals best (single column, same lines).' ] },
+  C: { name:'Mosaic', fn:layoutC, thesis:'Right when you want the WinDirStat gestalt: every cell of the screen belongs to something, project area ∝ session count, every session is a colour-field tile whose colour IS its state — readable from across the room.', worst:'Worst for stable placement (treemaps re-tile when counts change) and for colour-blind users; tiny tiles carry state only via colour + glyph.',
+    notes:[ 'Two-level squarified treemap done in cell space (rows counted double so tiles come out visually square). Project area ∝ session count as in the brief; session tile area is state-weighted (question 4 · needs-you 3 · running 2 · idle 1, +½ per subagent) so what matters is physically bigger.',
+      '<span class="k">No borders at all.</span> Grouping is the 1-cell dark gutter between tiles and the accent-coloured project tag. Border cost (the thing that killed cards at 80 cols) is gone.',
+      'State is the tile <span class="k">background</span>: solid red with dark text for questions, dark amber for needs-you, dark blue for running, near-bg for idle. A tile too small for words is still a legible colour block — the 1-line-card problem disappears by construction.',
+      'Text ladder inside a tile: 3–4 lines → 2 lines → "nick · age" → age → glyph. Continuous, no cliff.',
+      'The 22-session fleet project is the honest test: it takes ~40% of the screen and its tiles drop to 1–2 lines. That IS the proportionality signal the current build failed to show.',
+      '<span class="warn">Costs:</span> re-tiling on every count change fights R5.7 (stable slots) — would need a damped/sticky layout; heavy colour fill is a taste call some people find loud.' ] },
+  D: { name:'Signal', fn:layoutD, thesis:'Right when most sessions are ignorable and only exceptions matter: needs-you gets the stage, running is a compact stream, projects are a one-line index each. The screen stays calm; nothing you can\'t act on takes space.', worst:'Worst when you want per-project context for running work — running lines are sorted globally, not grouped, and project boxes do not exist.',
+    notes:[ 'Three zones by urgency. Zone 1 is the only place with 3-line cards, and only needs-you sessions get them (project name shown in accent on line 1 instead of a box).',
+      'Zone 2: running sessions as one-liners in two columns with project tag, action, ↳N subagent count, age — the "what is everybody doing" stream.',
+      'Zone 3: <span class="k">project index</span>, one line each: every session is one glyph (? ● ◐ ○) in its colour, sorted, so 5 vs 4 is literally 5 vs 4 characters; plus count, activity sparkline, and status counts.',
+      'The running glyph spins (◐◓◑◒, one frame per 250 ms tick) everywhere it appears — a legit terminal animation that makes the screen read as alive.',
+      'Ladder: needs-you rows capped by available height → "+N more waiting"; running capped → "⋯ +N"; project index is always fully shown (it is the floor of the degrade order).',
+      '<span class="warn">Breaks R7 "project-grouped"</span> for the top two zones on purpose — that is the thesis, not an oversight.' ] },
+};
+const VP = { wide:[150, 42], narrow:[80, 36] };
+let vp = 'wide', cur = 'A', spinOn = true, frame = 0;
+
+function render() {
+  const [W, H] = VP[vp];
+  for (const k of Object.keys(OPTS)) {
+    const S = new Screen(W, H); chrome(S, W, H); OPTS[k].fn(S, W, H);
+    document.querySelector(`#opt-${k} .term`).innerHTML = S.html();
+  }
+  tick();
+}
+function show(k) {
+  cur = k;
+  document.querySelectorAll('section').forEach(s => s.classList.toggle('on', s.id === 'opt-' + k));
+  document.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.opt === k));
+  document.getElementById('optname').textContent = `${k} · ${OPTS[k].name}`;
+  document.getElementById('thesis').textContent = OPTS[k].thesis;
+  document.querySelector('.panel .cur').textContent = `${k} — ${OPTS[k].name}: ${OPTS[k].thesis}`;
+  document.getElementById('notes').innerHTML = `<h3>${k} · ${OPTS[k].name} — reading notes</h3><ul>${OPTS[k].notes.map(n => `<li>${n}</li>`).join('')}</ul><p><b>Worst when:</b> ${OPTS[k].worst}</p>`;
+}
+function tick() {
+  const g = spinOn ? SPIN[frame % SPIN.length] : SPIN[0];
+  document.querySelectorAll('.spin').forEach(el => { el.textContent = g.repeat(len(el.textContent)); });
+}
+setInterval(() => { frame++; if (spinOn) tick(); }, 250);
+document.querySelectorAll('.pill').forEach(p => p.addEventListener('click', () => show(p.dataset.opt)));
+document.querySelector('.panel .list').innerHTML = Object.entries(OPTS).map(([k, o]) => `<div><b>${k}</b>${o.name}</div>`).join('');
+document.querySelectorAll('.ctl [data-vp]').forEach(b => b.addEventListener('click', () => { vp = b.dataset.vp; document.querySelectorAll('.ctl [data-vp]').forEach(x => x.classList.toggle('on', x === b)); render(); }));
+document.querySelectorAll('.ctl [data-scale]').forEach(b => b.addEventListener('click', () => { DATA = b.dataset.scale === 'real' ? REAL : STRESS; document.querySelectorAll('.ctl [data-scale]').forEach(x => x.classList.toggle('on', x === b)); render(); }));
+document.getElementById('spin').addEventListener('click', e => { spinOn = !spinOn; e.target.classList.toggle('on', spinOn); tick(); });
+document.addEventListener('keydown', e => { const k = e.key.toUpperCase(); if (OPTS[k]) show(k); });
+render(); show('A');
+</script>
+<script src="review-overlay.js"></script>
+</body>
+</html>

@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Architecture &amp; data model — opencode-dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <p class="brand">opencode-dashboard</p>
+  <p class="brand-sub">design explainer · 2026-09-02</p>
+  <ol>
+    <li><a class="pg" href="index.html">What this is</a></li>
+    <li aria-current="page"><a class="pg" href="architecture.html">Architecture &amp; data model</a>
+      <ul class="sub">
+        <li><a href="#boundary">The adapter boundary</a></li>
+        <li><a href="#why">Why it is shaped this way</a></li>
+        <li><a href="#ownership">Who owns what</a></li>
+        <li><a href="#snapshots">Snapshots, not events</a></li>
+        <li><a href="#session-id">Session identity</a></li>
+        <li><a href="#project-id">Project identity</a></li>
+        <li><a href="#staleness">Staleness</a></li>
+        <li><a href="#opencode">The opencode adapter</a></li>
+      </ul>
+    </li>
+    <li><a class="pg" href="layout.html">The Mosaic layout</a></li>
+    <li><a class="pg" href="visuals.html">Cards &amp; the naming scheme</a></li>
+    <li><a class="pg" href="interactions.html">Keyboard &amp; windows</a></li>
+  </ol>
+  <p class="foot">Source: <code>tasks/2026-09-01-…requirements.md</code> and five spec files under <code>docs/specs/dashboard/</code>. Nothing is implemented yet.</p>
+</nav>
+
+<main>
+
+<p class="eyebrow">Architecture</p>
+<h1>The adapter boundary</h1>
+<p class="standfirst">The dashboard's core never speaks a harness's wire protocol. One
+adapter per coding-agent tool stands between them, and every piece of harness-specific
+interpretation lives inside an adapter — including the parts that feel universal.</p>
+
+<h2 id="boundary"><span class="num">1</span>The boundary</h2>
+
+<p>Everything that tracks session state or decides what to render depends on a shared
+boundary called <code>HarnessAdapter</code> <span class="r">R1.3</span>. An adapter has
+exactly one job: watch its harness however that harness requires, and produce session
+snapshots in the shared shape.</p>
+
+<figure>
+<svg viewBox="0 0 780 540" role="img" aria-label="Harnesses feed per-harness adapters, which push session snapshots over one shared channel into a harness-agnostic core, which paints the terminal.">
+  <defs>
+    <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#6d727c"></path>
+    </marker>
+  </defs>
+
+  <!-- ============================= band 1: harnesses -->
+  <rect class="d-band" x="20" y="20" width="740" height="84" rx="3"></rect>
+  <text class="d-eyebrow" x="32" y="38">Harnesses — whatever the agent tool actually is</text>
+
+  <rect class="d-box" x="32" y="46" width="228" height="48" rx="3"></rect>
+  <text class="d-title" x="44" y="66">opencode server</text>
+  <text class="d-sub" x="44" y="82">127.0.0.1:49374 · REST + SSE</text>
+
+  <rect class="d-box-future" x="278" y="46" width="228" height="48" rx="3"></rect>
+  <text class="d-title" x="290" y="66">hook-based harness</text>
+  <text class="d-sub" x="290" y="82">(future) · hooks POST locally</text>
+
+  <rect class="d-box-future" x="524" y="46" width="228" height="48" rx="3"></rect>
+  <text class="d-title" x="536" y="66">file-tailing harness</text>
+  <text class="d-sub" x="536" y="82">(future) · tail its log files</text>
+
+  <line class="d-arrow" x1="146" y1="104" x2="146" y2="122" marker-end="url(#ah)"></line>
+  <line class="d-arrow" x1="392" y1="104" x2="392" y2="122" marker-end="url(#ah)"></line>
+  <line class="d-arrow" x1="638" y1="104" x2="638" y2="122" marker-end="url(#ah)"></line>
+
+  <!-- ============================= band 2: adapters -->
+  <rect class="d-band" x="20" y="124" width="740" height="122" rx="3"></rect>
+  <text class="d-eyebrow" x="32" y="142">Adapters — one per harness. How it watches is the adapter's own business.</text>
+
+  <rect class="d-box" x="32" y="150" width="228" height="88" rx="3"></rect>
+  <text class="d-title" x="44" y="170">opencode adapter</text>
+  <text class="d-note" x="44" y="184">the only one in V1</text>
+  <text class="d-sub" x="44" y="202">REST + SSE + 60s reconcile</text>
+  <text class="d-sub" x="44" y="215">call_id → name · question guess</text>
+  <text class="d-sub" x="44" y="228">tool name/args → rendered line</text>
+
+  <rect class="d-box-future" x="278" y="150" width="228" height="88" rx="3"></rect>
+  <text class="d-title" x="290" y="170">hook adapter</text>
+  <text class="d-note" x="290" y="184">(future)</text>
+  <text class="d-sub" x="290" y="204">local listener for hook POSTs</text>
+  <text class="d-sub" x="290" y="217">no REST to reconcile → R1.7</text>
+
+  <rect class="d-box-future" x="524" y="150" width="228" height="88" rx="3"></rect>
+  <text class="d-title" x="536" y="170">tailer adapter</text>
+  <text class="d-note" x="536" y="184">(future)</text>
+  <text class="d-sub" x="536" y="204">tail the harness's log files</text>
+  <text class="d-sub" x="536" y="217">no REST to reconcile → R1.7</text>
+
+  <line class="d-arrow" x1="146" y1="246" x2="146" y2="268" marker-end="url(#ah)"></line>
+  <line class="d-arrow" x1="392" y1="246" x2="392" y2="268" marker-end="url(#ah)"></line>
+  <line class="d-arrow" x1="638" y1="246" x2="638" y2="268" marker-end="url(#ah)"></line>
+
+  <!-- ============================= the boundary -->
+  <line class="d-bound" x1="20" y1="258" x2="760" y2="258"></line>
+  <rect class="d-chip" x="298" y="250" width="184" height="15"></rect>
+  <text class="d-arrow-lbl" x="390" y="261" text-anchor="middle">HarnessAdapter boundary</text>
+
+  <!-- ============================= band 3: the channel -->
+  <rect class="d-box-key" x="20" y="270" width="740" height="66" rx="3"></rect>
+  <text class="d-flow" x="36" y="290">One shared channel · session snapshots</text>
+  <text class="d-sub" x="36" y="305">whole-state upsert keyed by (harness kind, native id) · or an explicit “gone” tombstone</text>
+  <text class="d-sub" x="36" y="320">the core never receives a raw tool name or args — only the rendered line, e.g. “editing: foo.rs”</text>
+
+  <line class="d-arrow" x1="390" y1="336" x2="390" y2="354" marker-end="url(#ah)"></line>
+
+  <!-- ============================= band 4: the core -->
+  <rect class="d-band" x="20" y="356" width="740" height="96" rx="3"></rect>
+  <text class="d-eyebrow" x="32" y="374">Core — harness-agnostic · recomputed every frame from stored snapshots</text>
+
+  <rect class="d-box" x="32" y="382" width="171" height="58" rx="3"></rect>
+  <text class="d-title" x="44" y="400">snapshot store</text>
+  <text class="d-sub" x="44" y="414">latest per key</text>
+  <text class="d-sub" x="44" y="427">bucketed by project</text>
+
+  <rect class="d-box" x="217" y="382" width="171" height="58" rx="3"></rect>
+  <text class="d-title" x="229" y="400">classify</text>
+  <text class="d-sub" x="229" y="414">window W · active vs idle</text>
+  <text class="d-sub" x="229" y="427">running · needs-you · idle</text>
+
+  <rect class="d-box" x="402" y="382" width="171" height="58" rx="3"></rect>
+  <text class="d-title" x="414" y="400">layout</text>
+  <text class="d-sub" x="414" y="414">squarify ×2</text>
+  <text class="d-sub" x="414" y="427">no caching, no stability</text>
+
+  <rect class="d-box" x="587" y="382" width="171" height="58" rx="3"></rect>
+  <text class="d-title" x="599" y="400">paint</text>
+  <text class="d-sub" x="599" y="414">ratatui · crossterm</text>
+  <text class="d-sub" x="599" y="427">250 ms tick</text>
+
+  <line class="d-arrow" x1="390" y1="452" x2="390" y2="470" marker-end="url(#ah)"></line>
+
+  <!-- ============================= terminal -->
+  <rect class="d-box-soft" x="20" y="472" width="740" height="50" rx="3"></rect>
+  <text class="d-flow" x="36" y="492">Terminal</text>
+  <text class="d-sub" x="36" y="507">alternate screen · raw mode · cursor hidden · restored on Drop and on panic · resize recomputes the grid</text>
+</svg>
+<figcaption><b>Read top to bottom.</b> Three harnesses would need three adapters, but only
+the opencode one is built — the other two are dashed to mark them as shapes the boundary
+must accommodate, not plans. The dashed line is the only place harness-specific knowledge
+is allowed to stop.</figcaption>
+</figure>
+
+<h2 id="why"><span class="num">2</span>Why it is shaped this way</h2>
+
+<p>Four reasons, in the order they bite.</p>
+
+<h3>2.1 — A second harness's vocabulary must not leak in through the back door</h3>
+
+<p>The core only ever receives <strong>already-rendered results</strong>. A tile's
+current-action field contains the string <code>"editing: foo.rs"</code> — never a
+<code>{tool: "edit", args: {…}}</code> pair <span class="r">R1.3</span>.</p>
+
+<div class="box why">
+  <span class="lab">Why</span>
+  <p>A “generic” raw pair looks flexible and is not. The moment the core accepts a tool
+  name and an argument object, every harness's tool vocabulary becomes a case in shared
+  rendering code — and shared code that knows nine opencode tool names is opencode code
+  wearing a disguise. Forcing the adapter to render the line means a new harness adds
+  nothing to the core at all.</p>
+</div>
+
+<h3>2.2 — Harness-specific guesswork stays with the harness</h3>
+
+<p>Detecting “this turn ended and the agent is asking you something” is, for opencode,
+<strong>a guess with no real wire signal</strong>. A session told to stop and ask a
+clarifying question ends with plain <code>outcome: "succeeded"</code> and
+<code>time.idle</code> set — wire-identical to an ordinary completed turn
+<span class="r">R6.7</span>. The only way to tell them apart is to look at the final
+assistant text, so that heuristic lives in the opencode adapter. A harness with a genuine
+“waiting on you” signal reports it directly instead of having its output re-guessed by a
+heuristic written for a different tool.</p>
+
+<h3>2.3 — Transport is not part of the contract</h3>
+
+<p>opencode exposes a pollable REST API, so its adapter reconciles every 60&nbsp;s. A
+hook-based harness has <em>nothing to reconcile against</em>. The core's data model is
+therefore forbidden from assuming SSE, a reconcile sweep, or any other opencode-specific
+mechanism exists anywhere in its shape <span class="r">R1.3</span>.</p>
+
+<h3>2.4 — Only one adapter is built</h3>
+
+<p>V1 builds exactly one adapter. This is a <em>shape for future adapters</em>, not new V1
+scope — and it is deliberately not tested by a second implementation, because there is no
+second harness to design against yet.</p>
+
+<h2 id="ownership"><span class="num">3</span>Who owns what</h2>
+
+<table>
+  <caption>The split of responsibility across the boundary.</caption>
+  <thead><tr><th>Concern</th><th>Owner</th><th>Note</th></tr></thead>
+  <tbody>
+    <tr><td>How sessions are watched</td><td class="m">adapter</td><td>REST + SSE, hooks, file tail — entirely the adapter's choice, invisible to the core</td></tr>
+    <tr><td>Reconnect / reconcile cadence</td><td class="m">adapter</td><td>opencode sweeps every 60 s</td></tr>
+    <tr><td><code>call_id</code> → tool-name correlation</td><td class="m">adapter</td><td>opencode-specific join, see §7</td></tr>
+    <tr><td>“This turn ended asking a question”</td><td class="m">adapter</td><td>A heuristic for opencode; a direct signal for a harness that has one</td></tr>
+    <tr><td>Tool call → one-line human string</td><td class="m">adapter</td><td>Rules in §7</td></tr>
+    <tr><td>Resolving a session's directory</td><td class="m">adapter</td><td>Feeds the shared project-identity rule</td></tr>
+    <tr><td>Session identity</td><td class="m">shared</td><td>The tuple <code>(harness kind, native id)</code> — §4</td></tr>
+    <tr><td>Project identity</td><td class="m">shared rule</td><td>Git toplevel with a working-directory fallback — §5</td></tr>
+    <tr><td>Active vs idle (window <code>W</code>)</td><td class="m">core</td><td>Based on time since the last snapshot arrived, not any harness's own timestamp</td></tr>
+    <tr><td>The 3-state vocabulary</td><td class="m">core</td><td>Adapter supplies the status; the vocabulary is shared</td></tr>
+    <tr><td>Layout, tile content, ordering</td><td class="m">core</td><td>The Mosaic</td></tr>
+    <tr><td>Nickname claims</td><td class="m">core</td><td>Hashed from the shared identity tuple</td></tr>
+    <tr><td>Rendering</td><td class="m">core</td><td>ratatui + crossterm</td></tr>
+  </tbody>
+</table>
+
+<h2 id="snapshots"><span class="num">4</span>Snapshots, not events</h2>
+
+<div class="box rule">
+  <span class="lab">R1.4</span>
+  <p>Adapters push <strong>session snapshots</strong> — the full current state of one
+  session — not fine-grained events. Each message is either a whole-state upsert keyed by
+  session identity, or an explicit “session gone” tombstone. All of them travel on one
+  shared channel.</p>
+</div>
+
+<p>The core stores only the latest snapshot per key, bucketed by project, and recomputes
+the layout every frame from whatever it currently holds. It never patches a snapshot
+incrementally and holds no derived state between frames.</p>
+
+<div class="box why">
+  <span class="lab">Why not an event stream</span>
+  <p>The rejected alternative was a normalised event stream — <em>session created, tool
+  call started, tool call finished</em> — mirroring the harness's own wire events, folded
+  into state by the core. It was dropped because <strong>the adapter already has to keep
+  that same per-session state itself</strong> to build things like the recent-actions ring
+  and the files-touched list. An event stream would fold the identical state a second time
+  inside the core, reconstructing the same snapshot the adapter had already built. And
+  there is no performance case for it: at ~8 sessions redrawn every 250&nbsp;ms, snapshot
+  chattiness costs nothing.</p>
+</div>
+
+<p>One consequence worth stating plainly, because it is the kind of thing that gets
+“optimised” later: <strong>there is no incremental update path anywhere in the core.</strong>
+A single changed field arrives as a whole new snapshot.</p>
+
+<div class="box open">
+  <span class="lab">Not enumerated here</span>
+  <p><code>client.md</code> deliberately does not list the snapshot's fields — it owns the
+  <em>delivery</em> contract, and the field contents are specified where they're rendered
+  (<code>visuals.md</code>, <code>layout.md</code>). Reading those, a snapshot has to carry
+  at least: nickname, wire title, status, the rendered current-action line, subagent
+  entries, files touched this turn, final assistant text, last user prompt, a
+  recent-actions ring, an age/elapsed basis, harness kind, project identity, and the
+  last-snapshot time used by <span class="r">R1.7</span>.</p>
+</div>
+
+<h2 id="session-id"><span class="num">5</span>Session identity</h2>
+
+<div class="box rule">
+  <span class="lab">R1.5</span>
+  <p>Session identity is the tuple <strong>(harness kind, harness-native session id)</strong>.
+  The core does no cross-harness reconciliation.</p>
+</div>
+
+<p>Two harnesses that both happen to mint a session with the native id <code>"123"</code>
+are two distinct sessions — harness kind is part of the identity, so there is no collision
+and no merge <span class="r">R1.5</span>. This matters more than it looks: harnesses use
+small sequential integers, and the nickname hash consumes this <em>full tuple</em>
+precisely so two harnesses can't collide on id format.</p>
+
+<p>The other half of the rule is a deliberate refusal. If a harness's own resume or restart
+behaviour mints a new native id for what a user would call “the same session”, making that
+continuity visible — or deciding not to — is <strong>that harness's adapter's
+problem</strong>, not the core's. There is no fuzzy matching layer.</p>
+
+<h2 id="project-id"><span class="num">6</span>Project identity</h2>
+
+<div class="box rule">
+  <span class="lab">R1.6 — confirmed against real sessions and filesystem fixtures</span>
+  <p>Project identity is the <strong>canonical git repository toplevel path</strong> of the
+  session's working directory. If that directory is not inside a git repository, it falls
+  back to the <strong>canonicalised working directory itself</strong>.</p>
+</div>
+
+<p>The fallback clause has a specific target: opencode returns the literal project id
+<code>"global"</code> for any non-git directory, which would collide every non-git session
+into one bucket. Using an adapter-specific placeholder as a grouping key is forbidden.</p>
+
+<h4>Canonicalisation — required before comparing any two paths</h4>
+<ul>
+  <li>Resolve symlinks.</li>
+  <li>Strip any trailing slash.</li>
+  <li>Normalise case on case-insensitive filesystems. <em>(Unverified — see open item 11.)</em></li>
+  <li><strong>Apply the same canonicalisation to git's own
+  <code>--show-toplevel</code> output</strong>, not only to the input path. Both need it:
+  on macOS, <code>/var</code> is itself a symlink to <code>/private/var</code>, so an
+  uncanonicalised toplevel and a canonicalised working-directory fallback would silently
+  disagree about the same physical location.</li>
+</ul>
+
+<div class="box gotcha">
+  <span class="lab">Implementation note — easy to miss</span>
+  <p>Resolving a toplevel means spawning <code>git rev-parse --show-toplevel</code>. A
+  session's directory→toplevel mapping cannot change during that session's lifetime, so
+  <strong>the resolver must cache it per session</strong> rather than re-spawning git on
+  every snapshot or every redraw. The confirming spike measured correctness only, not call
+  frequency.</p>
+</div>
+
+<h4>Consequences, all confirmed by the spike</h4>
+<table>
+  <caption>Nine filesystem fixtures — repo root, subfolder, parent + subagent, explicit
+  bridge <code>directory</code> param, symlink, two worktrees. All matched.</caption>
+  <thead><tr><th>Case</th><th>Result</th></tr></thead>
+  <tbody>
+    <tr><td>Two git <strong>worktrees</strong> of one repository</td><td>Different toplevels → <strong>separate project boxes</strong>. No worktree-merging logic exists anywhere.</td></tr>
+    <tr><td>Session in a <strong>subfolder</strong>, including a monorepo subfolder</td><td>Resolves to that repository's single toplevel — grouped with root sessions, never split out per subfolder.</td></tr>
+    <tr><td>A <strong>subagent</strong> / child session</td><td>Inherits its parent's working directory exactly, so it lands in the same project box automatically — no special-casing at this layer.</td></tr>
+  </tbody>
+</table>
+
+<h2 id="staleness"><span class="num">7</span>Staleness</h2>
+
+<div class="box rule">
+  <span class="lab">R1.7</span>
+  <p>No session may go silently stale forever because a push-only adapter missed a message.
+  Track <strong>time since last snapshot</strong> per session; treat one that has gone quiet
+  past a threshold as stale rather than assuming it is still accurate forever.</p>
+</div>
+
+<p>The opencode adapter gets a free safety net from its own 60-second REST reconcile sweep:
+a dropped SSE connection self-corrects on the next sweep regardless of this rule. A
+hook-push-only adapter has nothing to reconcile against, which is exactly what makes this
+rule load-bearing — it is the only thing standing between a missed message and a session
+frozen on screen forever.</p>
+
+<div class="box open">
+  <span class="lab">Open — and coupled to the naming scheme</span>
+  <p>The threshold and the on-screen treatment (dim it? a distinct state? drop it?) are not
+  decided. Note the coupling: <strong>both nickname claim layers must release their claim
+  under this rule</strong>, not only on an explicit “gone” tombstone
+  <span class="r">R6.8</span>. Otherwise a session that goes silently stale without a
+  tombstone holds its claimed name forever, leaking it out of the pool permanently.</p>
+</div>
+
+<h4>The harness-tag slot</h4>
+<p>When sessions from more than one harness kind are on screen at once, each tile reserves a
+small slot identifying which harness it came from <span class="r">R1.8</span>. The slot is
+hidden whenever only one harness kind is present — which is every V1 render, since only the
+opencode adapter exists. Only the <em>slot</em> is required; the glyph and its placement
+wait for a second adapter to design against.</p>
+
+<h2 id="opencode"><span class="num">8</span>The opencode adapter</h2>
+
+<p>Everything in this section is <strong>adapter-specific</strong>, not a core requirement.
+Nothing here constrains how a future adapter would meet the same contract.</p>
+
+<h3>8.1 — How it watches <span class="r">R4</span></h3>
+
+<p>It fetches all sessions via <code>GET /api/session</code> (paginated), fetches
+per-session details on zoom, and keeps them live via <code>GET /api/event</code> SSE plus
+a 60-second periodic reconcile sweep.</p>
+
+<div class="box why">
+  <span class="lab">Which side carries correctness</span>
+  <p><strong>Polling carries correctness; SSE exists for latency</strong>, not as the sole
+  source of truth. So a silently dropped SSE connection shows stale data for at most one
+  sweep interval, then self-corrects. If SSE carried correctness, a dropped connection
+  would be a correctness bug instead of a latency blip.</p>
+</div>
+
+<h3>8.2 — Tool-call correlation <span class="r">R6.4</span></h3>
+
+<p>Two events describe one tool call, and the useful half of the information is split
+across them unevenly:</p>
+
+<div class="term"><span class="d">session.tool.input.started</span>   <span class="w">{ id: "call_1", </span><span class="b">name: "edit"</span><span class="w"> }</span>          <span class="d">← the only event that carries a name</span>
+<span class="d">session.tool.called</span>            <span class="w">{ id: "call_1", </span><span class="c">input: { path: "foo.rs" }</span><span class="w"> }</span>  <span class="d">← carries no name at all</span>
+
+                       <span class="d">↓ joined by call id, in a per-session map</span>
+
+<span class="d">current_action:</span> <span class="g">"editing: foo.rs"</span>          <span class="d">← all the core ever receives</span></div>
+
+<p>The adapter keeps a per-session <code>call_id → name</code> map: populated when
+<code>input.started</code> arrives, consumed when the matching <code>tool.called</code>
+arrives, then dropped. The core never sees the map, the events, the name, or the raw input
+object — only the rendered line inside the snapshot.</p>
+
+<h3>8.3 — Turning a tool call into a line <span class="r">R6.5</span></h3>
+
+<table>
+  <caption>Phase 1 mapping, built only from tool names confirmed on the wire.</caption>
+  <thead><tr><th>Tool</th><th>Rendered line</th><th>Rule</th></tr></thead>
+  <tbody>
+    <tr><td class="m">shell</td><td class="m">cargo test · --release</td><td><code>input.command</code>, collapsed to one line with newlines replaced by <code> · </code>, truncated with <code>…</code></td></tr>
+    <tr><td class="m">edit</td><td class="m">editing: foo.rs</td><td><code>editing: </code> + basename of <code>input.path</code>; full relative path if it fits</td></tr>
+    <tr><td class="m">any other</td><td class="m">running: grep</td><td>Generic fallback — no argument parsing at all</td></tr>
+  </tbody>
+</table>
+
+<p>The line updates on each <code>input.started → tool.called</code> pair and
+<strong>holds its last value</strong> between tool calls, until the next pair arrives or the
+session's terminal <code>session.execution.*</code> event fires.</p>
+
+<p>The full confirmed vocabulary is nine tools: <code>shell, edit, grep, write, skill,
+subagent, glob, patch, read</code> <span class="r">R6.6</span>. Seven of nine have confirmed
+live shapes; <code>glob</code> and <code>patch</code> do not — both were offered to the
+model in the confirming session and it chose not to use either. Formatting rules for the
+remaining seven are phase 2; until then the generic <code>running: &lt;name&gt;</code>
+fallback covers every one of them.</p>
+
+<div class="pager">
+  <a href="index.html"><span class="lbl">Previous</span>← What this is</a>
+  <a class="next" href="layout.html"><span class="lbl">Next</span>The Mosaic layout →</a>
+</div>
+
+</main>
+</div>
+</body>
+</html>

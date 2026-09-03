@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Keyboard &amp; windows — opencode-dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <p class="brand">opencode-dashboard</p>
+  <p class="brand-sub">design explainer · 2026-09-02</p>
+  <ol>
+    <li><a class="pg" href="index.html">What this is</a></li>
+    <li><a class="pg" href="architecture.html">Architecture &amp; data model</a></li>
+    <li><a class="pg" href="layout.html">The Mosaic layout</a></li>
+    <li><a class="pg" href="visuals.html">Cards &amp; the naming scheme</a></li>
+    <li aria-current="page"><a class="pg" href="interactions.html">Keyboard &amp; windows</a>
+      <ul class="sub">
+        <li><a href="#glance">At a glance</a></li>
+        <li><a href="#screens">Moving between screens</a></li>
+        <li><a href="#nav">Navigation keys</a></li>
+        <li><a href="#footer">The footer</a></li>
+        <li><a href="#window">Window controls</a></li>
+        <li><a href="#defaults">Fixed defaults</a></li>
+        <li><a href="#open-int">Still open here</a></li>
+      </ul>
+    </li>
+  </ol>
+  <p class="foot">Source: <code>tasks/2026-09-01-…requirements.md</code> and five spec files under <code>docs/specs/dashboard/</code>. Nothing is implemented yet.</p>
+</nav>
+
+<main>
+
+<p class="eyebrow">Interactions</p>
+<h1>Keyboard &amp; windows</h1>
+<p class="standfirst">Everything is reachable from the keyboard. One rule governs navigation
+and quitting: move forward with <kbd>↵</kbd>, back out one level with
+<kbd>q</kbd>&nbsp;/&nbsp;<kbd>Esc</kbd>.</p>
+
+<h2 id="glance"><span class="num">1</span>At a glance</h2>
+
+<p>Without opening anything, the main screen shows <strong>every active session across every
+project at once</strong>, grouped by project, each showing its attention state
+<span class="r">R7</span>. No keypress is needed to reveal a project.</p>
+
+<div class="box why">
+  <span class="lab">Vocabulary note</span>
+  <p>The original requirement wording named four states — running, waiting, needs-reply,
+  idle — written before the attention model was settled. Three states are final
+  <span class="r">R6.7</span>. “Waiting” and “needs-reply” are <strong>not</strong> a fourth
+  state; “needs-reply” is what the question badge now covers.</p>
+</div>
+
+<h2 id="screens"><span class="num">2</span>Moving between screens</h2>
+
+<figure>
+<svg viewBox="0 0 620 256" role="img" aria-label="Four screens: the main at-a-glance screen, reached from it the full-screen session trace and the help overlay, and exit. Enter zooms into the trace; q or Esc goes back one level or exits from the main screen.">
+  <defs>
+    <marker id="ah3" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0,0 L8,4 L0,8 z" fill="#6d727c"></path>
+    </marker>
+  </defs>
+
+  <!-- boxes -->
+  <rect class="d-box" x="30"  y="50"  width="190" height="64" rx="3"></rect>
+  <rect class="d-box" x="390" y="50"  width="190" height="64" rx="3"></rect>
+  <rect class="d-box-future" x="30"  y="170" width="190" height="64" rx="3"></rect>
+  <rect class="d-box-soft" x="390" y="170" width="190" height="64" rx="3"></rect>
+
+  <g class="d-title">
+    <text x="42"  y="72">at-a-glance main screen</text>
+    <text x="402" y="72">session trace</text>
+    <text x="42"  y="192">help overlay</text>
+    <text x="402" y="192">exit</text>
+  </g>
+  <g class="d-sub">
+    <text x="42"  y="88">all projects, all sessions</text>
+    <text x="42"  y="102">window: W (N live / M idle)</text>
+
+    <text x="402" y="88">full screen · tool stream</text>
+    <text x="402" y="102">the actions behind one tile</text>
+
+    <text x="42"  y="208">lists the current bindings</text>
+    <text x="42"  y="222">replaces the footer</text>
+
+    <text x="402" y="208">terminal restored — cursor,</text>
+    <text x="402" y="222">screen buffer, input mode</text>
+  </g>
+
+  <!-- main <-> trace -->
+  <line class="d-arrow" x1="220" y1="72" x2="386" y2="72" marker-end="url(#ah3)"></line>
+  <line class="d-arrow" x1="386" y1="96" x2="220" y2="96" marker-end="url(#ah3)"></line>
+  <rect class="d-chip" x="283" y="65" width="40" height="14"></rect>
+  <text class="d-arrow-lbl" x="303" y="75.5" text-anchor="middle">↵</text>
+  <rect class="d-chip" x="270" y="89" width="66" height="14"></rect>
+  <text class="d-arrow-lbl" x="303" y="99.5" text-anchor="middle">q / Esc</text>
+
+  <!-- main <-> help -->
+  <line class="d-arrow" x1="88"  y1="114" x2="88"  y2="166" marker-end="url(#ah3)"></line>
+  <line class="d-arrow" x1="142" y1="166" x2="142" y2="114" marker-end="url(#ah3)"></line>
+  <rect class="d-chip" x="76" y="133" width="24" height="14"></rect>
+  <text class="d-arrow-lbl" x="88" y="143.5" text-anchor="middle">?</text>
+  <rect class="d-chip" x="111" y="133" width="62" height="14"></rect>
+  <text class="d-arrow-lbl" x="142" y="143.5" text-anchor="middle">? / q / Esc</text>
+
+  <!-- main -> exit -->
+  <line class="d-arrow" x1="222" y1="106" x2="388" y2="186" marker-end="url(#ah3)"></line>
+  <rect class="d-chip" x="272" y="140" width="66" height="14"></rect>
+  <text class="d-arrow-lbl" x="305" y="150.5" text-anchor="middle">q / Esc</text>
+</svg>
+<figcaption><b><kbd>q</kbd> and <kbd>Esc</kbd> mean “back out one level,”
+everywhere.</b> From the trace or the help overlay they return to the main screen; from the
+main screen they quit. That is the whole navigation model — there is no separate quit
+key.</figcaption>
+</figure>
+
+<h2 id="nav"><span class="num">3</span>Navigation keys</h2>
+
+<table class="keys">
+  <caption>R7.1 — main screen bindings.</caption>
+  <thead><tr><th>Key</th><th>Action</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><kbd>j</kbd> <kbd>k</kbd> <kbd>←</kbd><kbd>→</kbd><kbd>↑</kbd><kbd>↓</kbd></td>
+      <td>Move the selection</td>
+      <td>Follows the tiles' <strong>current on-screen reading order</strong> — left to right,
+      top to bottom, exactly as this frame's Mosaic placement put them. Moving past the last
+      tile wraps to the first; past the first wraps to the last.</td>
+    </tr>
+    <tr>
+      <td><kbd>↵</kbd></td>
+      <td>Zoom</td>
+      <td>Full-screen view of that session's <strong>trace</strong>: the chronological list of
+      tool calls that fed its tile's one-line action summary — not just the latest line.</td>
+    </tr>
+    <tr>
+      <td><kbd>q</kbd> <kbd>Esc</kbd></td>
+      <td>Back / quit</td>
+      <td>Back out one level. From the main screen, exit and restore the terminal exactly as
+      <span class="r">R2</span> describes.</td>
+    </tr>
+    <tr>
+      <td><kbd>?</kbd></td>
+      <td>Help</td>
+      <td>Overlay listing the current key bindings. <kbd>?</kbd> again, or
+      <kbd>q</kbd>&nbsp;/&nbsp;<kbd>Esc</kbd>, closes it and returns to whatever was showing
+      underneath.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="box gotcha">
+  <span class="lab">Reading order moves</span>
+  <p>Navigation follows the tiles' on-screen order <strong>for this frame</strong> — and
+  that order is not guaranteed to stay the same from one frame to the next, because squarify
+  gives no positional stability <span class="r">R5.7</span>. Concretely: pressing
+  <kbd>j</kbd> twice may not visit the same two tiles in the same sequence after the layout
+  reflows. This is accepted, along with the motion itself.</p>
+</div>
+
+<h2 id="footer"><span class="num">4</span>The footer</h2>
+
+<p>A footer bar is always visible on the main and trace screens — though <strong>not</strong>
+inside the <kbd>?</kbd> overlay, which replaces it. It shows the current window value and
+the live/idle counts in this literal form <span class="r">R7.1</span>:</p>
+
+<div class="term"><span class="w">window: 10m (3 live / 5 idle)</span>   <span class="d">j/k move · ↵ zoom · [ ] window · a all · w reset · ? help · q quit</span></div>
+
+<p>Under “show all”, every session is active by definition, so the footer reads
+<code>window: all (N live / 0 idle)</code> instead of a minute count.</p>
+
+<p>The footer is distinct from the empty-state panel that appears in the <em>body</em> when
+zero sessions are active — that panel is a different thing with different copy
+<span class="r">R9</span>.</p>
+
+<h2 id="window"><span class="num">5</span>Window controls</h2>
+
+<p>Six keys adjust <code>W</code>, the minutes-since-last-update cutoff that decides active
+vs. idle <span class="r">R8</span>.</p>
+
+<table class="keys">
+  <caption>R8 — window keys.</caption>
+  <thead><tr><th>Key</th><th>Effect</th></tr></thead>
+  <tbody>
+    <tr><td><kbd>]</kbd></td><td><code>W += 5m</code></td></tr>
+    <tr><td><kbd>[</kbd></td><td><code>W -= 5m</code></td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>]</kbd></td><td><code>W += 1m</code> — fine-tune</td></tr>
+    <tr><td><kbd>Shift</kbd>+<kbd>[</kbd></td><td><code>W -= 1m</code> — fine-tune</td></tr>
+    <tr><td><kbd>w</kbd></td><td>Reset <code>W</code> to the default, 10m</td></tr>
+    <tr><td><kbd>a</kbd></td><td>“Show all” — every session counts as active regardless of age</td></tr>
+  </tbody>
+</table>
+
+<div class="box rule">
+  <span class="lab">Clamping</span>
+  <p><code>W</code> is clamped to <strong>1–60 minutes</strong>. <kbd>[</kbd> never takes it
+  below 1m; <kbd>]</kbd> never takes it above 60m. Reaching “show all” happens
+  <strong>only</strong> via <kbd>a</kbd> — pressing <kbd>]</kbd> at 60m clamps and does
+  <em>not</em> transition into “show all”.</p>
+</div>
+
+<p>Every window key triggers an <strong>immediate layout recompute</strong>: no animation, no
+debounce. The new layout appears on the very next drawn frame.</p>
+
+<h2 id="defaults"><span class="num">6</span>Fixed defaults</h2>
+
+<p>These bindings are V1's fixed defaults. There is <strong>no in-app way to view or change
+what key triggers what</strong> — no settings screen, no config file read for this purpose
+<span class="r">R8.1</span>. A future version may add rebinding; V1 reserves no visible UI
+for it.</p>
+
+<div class="box why">
+  <span class="lab">Why</span>
+  <p>Picking these particular keys was a “good enough for now” choice, not a permanent
+  commitment — the source's own framing is “use sensible defaults, we can switch them
+  later.” The decision being recorded here is that <em>not</em> building rebinding is the
+  deliberate part, not the specific letters.</p>
+</div>
+
+<h2 id="open-int"><span class="num">7</span>Still open here</h2>
+
+<table>
+  <caption>The interaction questions that are not settled.</caption>
+  <thead><tr><th>Open item</th><th>Req</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Arrow-key semantics.</strong> The source lists “<code>j/k</code> or arrow”
+    as one undifferentiated group and never says whether all four arrows should step one tile
+    in reading order, or whether <kbd>↑</kbd>/<kbd>↓</kbd> should instead jump by on-screen
+    row. The spec assumes all four are equivalent single-step until decided otherwise.</td><td class="m">R7.1</td></tr>
+    <tr><td><strong>Project-level zoom.</strong> The source says <kbd>↵</kbd> zooms the
+    selected “tile/project box”, but navigation only ever selects a tile — there is no
+    described way to select a project box as a distinct unit. Only tile zoom is specified;
+    what a project-level zoom would show is undefined.</td><td class="m">R7.1</td></tr>
+    <tr><td><strong>Global overflow under <kbd>a</kbd>.</strong> With “show all” and 50+
+    sessions, tiles may still fall below the minimum size. Per-project degrade rules still
+    apply, but there is no defined global <code>+N</code> strategy across projects at that
+    scale.</td><td class="m">R8 / R5.6</td></tr>
+    <tr><td><strong>Footer hint wording.</strong> The <code>window: W (…)</code> pattern is
+    specified exactly; the wording of the key-hint reminder is left to implementation, as
+    long as it accurately reflects the keys in this section.</td><td class="m">R7.1</td></tr>
+  </tbody>
+</table>
+
+<div class="pager">
+  <a href="visuals.html"><span class="lbl">Previous</span>← Cards &amp; the naming scheme</a>
+  <span class="none"></span>
+</div>
+
+</main>
+</div>
+</body>
+</html>

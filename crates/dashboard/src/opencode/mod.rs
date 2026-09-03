@@ -88,12 +88,14 @@ impl HarnessAdapter for OpencodeAdapter {
     /// refreshes (R4's scenario).
     ///
     /// Known scope limit, not required by any T09 acceptance criterion:
-    /// `GET /api/session` pagination (R4 says "paginated") isn't
-    /// implemented — `opencode_client::Client::list_sessions` itself
-    /// doesn't paginate yet, and at the design-center scale this task
-    /// targets (`overview.md` R5.8, ~8 sessions) a single page always
-    /// covers every session. Flagging this rather than silently assuming
-    /// it doesn't matter.
+    /// `GET /api/session` pagination (R4 says "paginated") isn't looped —
+    /// `opencode_client::Client::list_sessions` requests one page, now
+    /// raised to `limit=500` (was the server's silent default of 50,
+    /// which caused a real reported bug: a project's own sessions falling
+    /// entirely off the list whenever 50+ sessions elsewhere were touched
+    /// more recently — see that method's doc comment). 500 comfortably
+    /// covers real observed workspace scale; true cursor pagination past
+    /// that is the next step if ever needed, not implemented here.
     fn run(self: Box<Self>, sink: UnboundedSender<SessionEvent>) -> JoinHandle<()> {
         let client = self.client;
         tokio::spawn(async move {

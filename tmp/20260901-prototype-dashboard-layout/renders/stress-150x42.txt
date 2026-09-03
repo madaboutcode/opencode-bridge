@@ -1,0 +1,42 @@
+ ◆ opencode  · 6 projects · 49 sessions · ? 5 · ● 9 · ◐ 25 · ○ 10                                                                   window 10m  ● live
+ web-dashboard  5            scratch-cli  1       big-monorepo  11                  ci-fleet-runner  22                           ? 1  ● 4  ◐ 13  ○ 4 
+ ? 9m          ● 22m         ◐ violet-otter       ? cinder-wolf    ● amber-stag     ? runner-delta   ● runner-zeta    ● runner-eta     ● runner-th…   
+ brave-otter   cobalt-wr…    shell: cargo ben…     ? 7m            Clean up dead     ? 2m            Investigate      Investigate      Investigate    
+                             running · 45s                         feature flags                     flaky runner…    flaky runner…    flaky runne…   
+                                                  Clarify          need · 16m       Scale runner     need · 26m       need · 19m       need · 12m     
+                                                  billing…         ⋯                pool to 40?      ⋯                ⋯                ⋯              
+                             mobile-app  6                                                                                                            
+                             ? willow-stag                                                                                                            
+                              question · 3m                                                                                                           
+                             ⋯                    ● moss-otter        ◐ 1m          ● runner-alpha     ◐ runner-eps…   ◐ runner-eta    ◐ runner-al…   
+ ◐ amber-falc…   ◐ 11m                            Fix CI cache key    north-tig…    Investigate        running:        running:        running:       
+ editing:        extraor…                         needs-you · 9m                    flaky runner…      fleet-health…   fleet-health…   fleet-healt…   
+ requirements…                                    ↳ quiet-lark run…                 needs-you · 5m     run · 1m        run · 1m        run · 1m       
+ run · 3m                    ● quartz-badger                                        ⋯                                                                 
+ ↳ cinder-wis…               Update app icon …    Fix CI cache key                                     Fleet health    Fleet health    Fleet health   
+                             needs-you · 1m       — done.                                              check           check           check          
+ Reviewing                                                                                             editing: y.rs   editing: y.rs   editing: y.…   
+ opencode…                                                                          ◐ runner-beta                                                     
+ editing: y.rs               ◐ sable-heron                                          running:           ◐ runner-beta       ◐ 1m          ◐ 1m         
+                             editing:             ◐ east-lynx      ◐ south-heron    fleet-health-ch…   running:            runner-alp…   runner-be…   
+○ dusty-lynx · 12m           NotificationMana…    running: pnpm    editing:         running · 1m       fleet-health-che…                              
+                             running · 6m         test:e2e         .eslintrc.js     shell: cargo te…   running · 1m                                   
+ infra-tools  4              ↳ pebble-owl edi…    run · 2m         run · 4m         editing: y.rs      shell: cargo test                              
+ ? 6m          ● 4m          ↳ misty-vole run…                                                         editing: y.rs                                  
+ golden-hawk   ember-qua…    ↳ ashen-crane re…    Run e2e suite    Tidy eslint      ◐ runner-gamma                                                    
+                                                  editing: y.rs    config           running:           ◐ runner-epsilon                               
+                             Fix push                                               fleet-health-ch…   running:                                       
+                             notification…        ◐ west-badger         ◐ 8m        running · 1m       fleet-health-che…                              
+                             editing: y.rs        running: tsc          teal-mo…                       running · 1m        ◐ 1m          ◐ 1m         
+                             read: x.rs           --noEmit                          Fleet health       shell: cargo test   runner-gam…   runner-de…   
+                             shell: cargo test    running · 5m                      check              editing: y.rs                                  
+                             editing: y.rs        editing: y.rs                                                                                       
+                                                                                    ◐ runner-delta     ◐ runner-zeta                                  
+ ◐ silver-marlin             ◐ flint-osprey       ◐ plum-heron                      running:           running:                                       
+ running: terraform plan     running: pod ins…    editing: webhooks.…               fleet-health-ch…   fleet-health-che…                              
+ running · 1m · 7 calls      running · 2m         running · 3m                      running · 1m       running · 1m                                   
+                                                                                    editing: y.rs      editing: y.rs                                  
+                                                                                                                                                      
+○ hawk-otter · 51m          +2 idle              ○ rust-crane · 25m  +1 idle       ○ runner-zeta · 30m  ○ runner-gamma · 30m  +2 idle                 
+                                                                                                                                                      
+q quit  w 80col  f fixture  +/- session  p project  . tick                                           hidden: docs-site (4 idle), tiny-service (1 idle)

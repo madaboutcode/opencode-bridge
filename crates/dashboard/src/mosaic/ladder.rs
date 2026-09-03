@@ -172,10 +172,45 @@ fn nick_line(s: &SessionView, wi: u16, tick: usize) -> Line<'static> {
     Line::from(Span::styled(text, style))
 }
 
-fn subagent_line(sub: &SubagentView, wi: u16) -> Line<'static> {
-    let text = format!("↳ {} {}", sub.nick, sub.action);
-    let truncated = truncate_ellipsis(&text, wi as usize);
-    Line::from(Span::styled(truncated, Style::new().fg(palette::SUBAGENT)))
+/// Renders one subagent's `↳ {state_glyph} {nick} [action]` line.
+/// `show_action` controls whether the subagent's current action text is
+/// appended — `true` in the extended regimes (one line of budget per
+/// subagent, room to spare), `false` in the compact regime (a single
+/// shared line, where the nick plus a possible `+N` overflow count is all
+/// that fits legibly). `extra` is the count of further subagents not shown
+/// on this line (compact regime, more than one subagent exists); `0`
+/// suppresses the suffix.
+///
+/// The connector renders in `TEXT_DIM` always — it's structural chrome,
+/// not a data signal — while the glyph and everything after it render in
+/// the subagent's own state color (`palette::tile_text`), the same
+/// glyph/color pairing a top-level session's `nick_line` uses. `subs` is
+/// already sorted most-urgent-first by `view::build_projects`, so on the
+/// compact path this is always the subagent most worth surfacing, not
+/// just the first one spawned.
+fn subagent_line(
+    sub: &SubagentView,
+    wi: u16,
+    tick: usize,
+    show_action: bool,
+    extra: usize,
+) -> Line<'static> {
+    let glyph = palette::state_glyph(sub.state, tick);
+    let mut body = if show_action && !sub.action.is_empty() {
+        format!("{glyph} {} {}", sub.nick, sub.action)
+    } else {
+        format!("{glyph} {}", sub.nick)
+    };
+    if extra > 0 {
+        body.push_str(&format!(" +{extra}"));
+    }
+    let connector = format!("{} ", palette::connector_glyph());
+    let avail = (wi as usize).saturating_sub(connector.chars().count());
+    let truncated = truncate_ellipsis(&body, avail);
+    Line::from(vec![
+        Span::styled(connector, Style::new().fg(palette::TEXT_DIM)),
+        Span::styled(truncated, Style::new().fg(palette::tile_text(sub.state))),
+    ])
 }
 
 /// Status line forms (`layout.md` R5.3 "Status line forms"). `subagent_lines_rendered`
@@ -235,11 +270,16 @@ fn status_line(s: &SessionView, wi: u16, subagent_lines_rendered: bool) -> Line<
     if !s.subs.is_empty() && !subagent_lines_rendered {
         let remaining = wi_i - base_len;
         if remaining >= 4 {
-            let tail = format!(" ↳{}", s.subs.len());
+            // `s.subs` is sorted most-urgent-first (`view::build_projects`),
+            // so tinting this collapsed count by `subs[0]`'s state means a
+            // hidden Question subagent still shows amber here rather than
+            // a flat "some subagents exist" cyan that gives no urgency
+            // signal at all.
+            let tail = format!(" {}{}", palette::connector_glyph(), s.subs.len());
             spans.push(Span::styled(
                 tail,
                 Style::new()
-                    .fg(palette::SUBAGENT)
+                    .fg(palette::tile_text(s.subs[0].state))
                     .add_modifier(Modifier::BOLD),
             ));
         }
@@ -277,7 +317,8 @@ fn compact(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileContent {
     blocks.push("status");
 
     if row4_sub {
-        lines.push(subagent_line(&s.subs[0], wi));
+        let extra = s.subs.len() - 1;
+        lines.push(subagent_line(&s.subs[0], wi, tick, false, extra));
         blocks.push("subagent");
     }
 
@@ -437,7 +478,11 @@ fn extended_running(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileConten
     let b4 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s.subs.iter().map(|sub| subagent_line(sub, wi)).collect(),
+        lines: s
+            .subs
+            .iter()
+            .map(|sub| subagent_line(sub, wi, tick, true, 0))
+            .collect(),
     };
     let b5 = Block {
         id: "title",
@@ -536,7 +581,11 @@ fn extended_question(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileConte
     let b6 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s.subs.iter().map(|sub| subagent_line(sub, wi)).collect(),
+        lines: s
+            .subs
+            .iter()
+            .map(|sub| subagent_line(sub, wi, tick, true, 0))
+            .collect(),
     };
 
     // indices: 0=nick 1=badge 2=assistant(elastic placeholder) 3=you 4=title 5=subagent
@@ -595,7 +644,11 @@ fn extended_needs_you(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileCont
     let b4 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s.subs.iter().map(|sub| subagent_line(sub, wi)).collect(),
+        lines: s
+            .subs
+            .iter()
+            .map(|sub| subagent_line(sub, wi, tick, true, 0))
+            .collect(),
     };
     let b5_placeholder = Block {
         id: "assistant",

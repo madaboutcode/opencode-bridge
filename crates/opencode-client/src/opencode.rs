@@ -577,8 +577,23 @@ impl Client {
         })
     }
 
+    /// `GET /session` with a raised page size. The server defaults to 50
+    /// with no `limit` param — fine at this crate's original ~8-session
+    /// design center, but silently wrong at real multi-project scale: a
+    /// project's own sessions can fall entirely off an unscoped call if
+    /// 50+ sessions in *other* projects were touched more recently
+    /// (confirmed live: `opencode-mcp`'s dashboard was missing a
+    /// `de-platform` session for exactly this reason). `limit=500` is
+    /// confirmed to work against the real server (verified by hand); true
+    /// cursor pagination past that would be the next step if a single
+    /// project ever plausibly holds 500+ sessions, which no observed
+    /// workspace does today. Shared by both `list_sessions` callers
+    /// (`opencode-bridge` and `dashboard`) — both want "give me
+    /// everything," neither wants the silent 50-item cap.
     pub async fn list_sessions(&self) -> Result<Vec<SessionInfo>> {
-        let resp = self.request(reqwest::Method::GET, "/session", None).await?;
+        let resp = self
+            .request(reqwest::Method::GET, "/session?limit=500", None)
+            .await?;
         let data = Self::data_field("/session", resp)?;
         Ok(serde_json::from_value(data)?)
     }

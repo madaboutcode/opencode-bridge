@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Mosaic layout — opencode-dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+<nav class="toc">
+  <p class="brand">opencode-dashboard</p>
+  <p class="brand-sub">design explainer · 2026-09-02</p>
+  <ol>
+    <li><a class="pg" href="index.html">What this is</a></li>
+    <li><a class="pg" href="architecture.html">Architecture &amp; data model</a></li>
+    <li aria-current="page"><a class="pg" href="layout.html">The Mosaic layout</a>
+      <ul class="sub">
+        <li><a href="#idea">The idea</a></li>
+        <li><a href="#screen">A screen, assembled</a></li>
+        <li><a href="#pass1">Pass 1 — project regions</a></li>
+        <li><a href="#pass2">Pass 2 — session tiles</a></li>
+        <li><a href="#ladder">The content ladder</a></li>
+        <li><a href="#extended">The extended form</a></li>
+        <li><a href="#motion">Position is not stable</a></li>
+        <li><a href="#limits">Minimums &amp; degrade</a></li>
+      </ul>
+    </li>
+    <li><a class="pg" href="visuals.html">Cards &amp; the naming scheme</a></li>
+    <li><a class="pg" href="interactions.html">Keyboard &amp; windows</a></li>
+  </ol>
+  <p class="foot">Source: <code>tasks/2026-09-01-…requirements.md</code> and five spec files under <code>docs/specs/dashboard/</code>. Nothing is implemented yet.</p>
+</nav>
+
+<main>
+
+<p class="eyebrow">Layout</p>
+<h1>The Mosaic</h1>
+<p class="standfirst">One <code>squarify()</code> call packs project regions into the body
+area. A second call packs each project's session tiles inside its own region. Tile content
+then grows into whatever space the tile actually got.</p>
+
+<h2 id="idea"><span class="num">1</span>The idea</h2>
+
+<p>The screen's body area is packed by an <strong>area-proportional</strong> algorithm —
+squarify, the Bruls et al. squarified-treemap algorithm, used <strong>unmodified</strong>
+<span class="r">R5</span>. It is applied twice:</p>
+
+<ol>
+  <li><strong>Pass 1</strong> divides the body area into one rectangular region per project.
+  Weight = that project's session count <span class="r">R5.1</span>.</li>
+  <li><strong>Pass 2</strong> runs again, separately inside <em>each</em> region, dividing
+  that region's area among its session tiles. Weight = content demand
+  <span class="r">R5.2</span>.</li>
+  <li><strong>Tile content</strong> is then a function of the size the tile ended up with
+  <span class="r">R5.3</span>. There is no fixed card size anywhere in the system.</li>
+</ol>
+
+<div class="box why">
+  <span class="lab">Why it replaced the earlier design</span>
+  <p>This replaced a fixed-size-card “flow-grid” design outright, and the reason is a
+  measurement rather than a taste: at real usage scale (4 projects, 8 sessions), three of
+  four candidate layouts used <strong>at most 13 of 40 available rows</strong>. Only the
+  area-proportional layout used all 40 <span class="r">R5.9</span>. A later render also
+  caught the mirror-image failure — fixed 3-line cards sitting inside a large proportional
+  box, leaving blank space below the text — which is what the content ladder in §5 exists
+  to fix <span class="r">R5.10</span>. The earlier design is not being revisited.</p>
+</div>
+
+<h2 id="screen"><span class="num">2</span>A screen, assembled</h2>
+
+<p>A 120&nbsp;×&nbsp;34 cell body area with four projects and eight top-level sessions.
+Project weights are <code>3 / 2 / 2 / 1</code>; a fifth project, <code>epsilon</code>, has
+only idle sessions and so never gets a region at all.</p>
+
+<figure>
+<svg viewBox="0 0 700 440" role="img" aria-label="A 120 by 34 cell terminal body packed into four project regions sized 3, 2, 2 and 1, each containing session tiles, with a footer.">
+  <!-- width bracket -->
+  <line x1="20" y1="13" x2="680" y2="13" stroke="#6d727c" stroke-width="0.75"></line>
+  <rect x="316" y="6" width="68" height="14" fill="#ffffff"></rect>
+  <text class="d-arrow-lbl" x="350" y="16.5" text-anchor="middle">120 cols</text>
+
+  <!-- body background -->
+  <rect x="20" y="20" width="660" height="374" fill="#15161e"></rect>
+
+  <!-- region hairlines (diagram aid only; the real TUI has no borders) -->
+  <g stroke="#2b2e3d" stroke-width="0.75">
+    <line x1="267.5" y1="31" x2="267.5" y2="394"></line>
+    <line x1="432.5" y1="31" x2="432.5" y2="394"></line>
+    <line x1="597.5" y1="31" x2="597.5" y2="394"></line>
+    <line x1="20" y1="31" x2="680" y2="31"></line>
+  </g>
+
+  <!-- ============ tag rows (row 0 of each region) -->
+  <g fill="#1e2030">
+    <rect x="20"    y="20" width="247.5" height="11"></rect>
+    <rect x="267.5" y="20" width="165"   height="11"></rect>
+    <rect x="432.5" y="20" width="165"   height="11"></rect>
+    <rect x="597.5" y="20" width="82.5"  height="11"></rect>
+  </g>
+  <g class="t-t">
+    <text x="25.5" y="29" fill="#bb9af7" font-weight="700">opencode-mcp</text>
+    <text x="101"  y="29" class="t-dim">2 run · 1 idle</text>
+
+    <text x="273"  y="29" fill="#9ece6a" font-weight="700">opencode-tui</text>
+    <text x="348"  y="29" class="t-dim">2 live</text>
+
+    <text x="438"  y="29" fill="#7dcfff" font-weight="700">decision-engines</text>
+    <text x="534"  y="29" class="t-dim">1 · 1 idle</text>
+
+    <text x="603"  y="29" fill="#ff9e64" font-weight="700">scratch</text>
+    <text x="648"  y="29" class="t-dim">1 run</text>
+  </g>
+
+  <!-- ============ tiles -->
+  <!-- alpha a1: running, 1 subagent -->
+  <rect x="20" y="31" width="148.5" height="352" fill="#1b2a45"></rect>
+  <g class="t-g" fill="#7aa2f7">
+    <text x="25.5" y="40" font-weight="700">▶ Apollo</text>
+    <text x="25.5" y="51">editing: layout.rs</text>
+    <text x="25.5" y="62">running · 3m</text>
+    <text x="25.5" y="73">↳ Athena editing: theme</text>
+    <text x="25.5" y="95" class="t-dim">squarify weight rules</text>
+    <text x="25.5" y="117" class="t-dim">files: layout.rs,</text>
+    <text x="25.5" y="128" class="t-dim">theme.rs</text>
+    <text x="25.5" y="139" class="t-dim">running: grep</text>
+    <text x="25.5" y="150" opacity="0.75">editing: squarify.rs</text>
+    <text x="25.5" y="161" opacity="0.75">cargo test · --release</text>
+  </g>
+
+  <!-- alpha a2: running -->
+  <rect x="168.5" y="31" width="99" height="352" fill="#1b2a45"></rect>
+  <g class="t-g" fill="#7aa2f7">
+    <text x="174" y="40" font-weight="700">▶ Hermes</text>
+    <text x="174" y="51">cargo test ·</text>
+    <text x="174" y="62">--release</text>
+    <text x="174" y="73">running · 45s</text>
+    <text x="174" y="95" class="t-dim">fix flaky test</text>
+    <text x="174" y="106" class="t-dim">editing: main.rs</text>
+    <text x="174" y="117" opacity="0.75">running: read</text>
+  </g>
+
+  <!-- beta b1: question -->
+  <rect x="267.5" y="31" width="165" height="181.5" fill="#3b1f2b"></rect>
+  <rect x="273" y="43" width="78" height="12" fill="#5a2434"></rect>
+  <g class="t-t">
+    <text x="273"  y="40" fill="#f7768e" font-weight="700">? Poirot</text>
+    <text x="278"  y="52" fill="#f7768e">question · 9m</text>
+    <text x="273"  y="73" fill="#c0caf5">⋯</text>
+    <text x="273"  y="84" fill="#c0caf5">I'd need to touch the</text>
+    <text x="273"  y="95" fill="#c0caf5">row-split logic — should I?</text>
+    <text x="273"  y="172" class="t-dim">you: make the idle row</text>
+    <text x="273"  y="183" class="t-dim">drop when tiles need it</text>
+    <text x="273"  y="205" class="t-dim">mosaic: idle row policy</text>
+  </g>
+
+  <!-- beta b2: running -->
+  <rect x="267.5" y="212.5" width="165" height="181.5" fill="#1b2a45"></rect>
+  <g class="t-g" fill="#7aa2f7">
+    <text x="273" y="221.5" font-weight="700">▶ Marple</text>
+    <text x="273" y="232.5">editing: squarify.rs</text>
+    <text x="273" y="243.5">running · 12m</text>
+    <text x="273" y="265.5" class="t-dim">mosaic: first pass</text>
+    <text x="273" y="287.5" class="t-dim">files: squarify.rs</text>
+    <text x="273" y="298.5" class="t-dim">running: grep</text>
+    <text x="273" y="309.5" opacity="0.75">editing: render.rs</text>
+    <text x="273" y="320.5" opacity="0.75">cargo build</text>
+  </g>
+
+  <!-- gamma g1: needs-you -->
+  <rect x="432.5" y="31" width="165" height="352" fill="#33301f"></rect>
+  <g class="t-t">
+    <text x="438" y="40" fill="#e0af68" font-weight="700">● Thor</text>
+    <text x="438" y="51" fill="#c0caf5">mosaic: region tag row</text>
+    <text x="438" y="62" fill="#c0caf5">and idle chip rows</text>
+    <text x="438" y="73" fill="#e0af68">needs-you · 22m</text>
+    <text x="438" y="95" fill="#c0caf5">⋯</text>
+    <text x="438" y="106" fill="#c0caf5">Region got 30 cols at 120</text>
+    <text x="438" y="117" fill="#c0caf5">wide, below the 14x7 floor</text>
+    <text x="438" y="128" fill="#c0caf5">for a two-tile project.</text>
+    <text x="438" y="337" class="t-dim">you: does the tag row</text>
+    <text x="438" y="348" class="t-dim">count against region height?</text>
+  </g>
+
+  <!-- delta d1: running, narrow -->
+  <rect x="597.5" y="31" width="82.5" height="363" fill="#1b2a45"></rect>
+  <g class="t-g" fill="#7aa2f7">
+    <text x="603" y="40" font-weight="700">▶ Spock</text>
+    <text x="603" y="51">editing:</text>
+    <text x="603" y="62">theme.rs</text>
+    <text x="603" y="73">run · 3m</text>
+    <text x="603" y="95" class="t-dim">fix header</text>
+    <text x="603" y="106" class="t-dim">running: grep</text>
+    <text x="603" y="117" opacity="0.75">running: read</text>
+  </g>
+
+  <!-- ============ idle chip rows (last row of alpha and gamma) -->
+  <g class="t-t">
+    <text x="25.5" y="392" fill="#565f89">○ Nemesis · 51m</text>
+    <text x="438"  y="392" fill="#565f89">○ Frigg · 22m</text>
+  </g>
+
+  <!-- ============ footer -->
+  <rect x="20" y="394" width="660" height="22" fill="#1e2030"></rect>
+  <g class="t-t">
+    <text x="31"  y="403" fill="#c0caf5">window: 10m (6 live / 4 idle)</text>
+    <text x="669" y="403" fill="#565f89" text-anchor="end">hidden: epsilon (2 idle)</text>
+    <text x="31"  y="414" fill="#565f89">j/k move · ↵ zoom · [ ] window · a all · w reset · ? help · q quit</text>
+  </g>
+</svg>
+<figcaption><b>Schematic, not a captured render</b> — assembled by hand from the spec's
+rules, using real squarify output for the region and tile rectangles. The hairlines mark
+region extents so you can see them; <b>the real TUI has no borders at all</b>
+<span class="r">R5.11</span>. Colours are Tokyo Night, assigned for legibility here — the
+spec pins the palette but not which colour each state takes. Only the idle glyph
+<code>○</code> is specified; <code>▶ ● ?</code> are placeholders.</figcaption>
+</figure>
+
+<p>Things worth reading off this picture:</p>
+<ul>
+  <li><strong>Region widths are 45 / 30 / 30 / 15</strong> out of 120 — exactly
+  proportional to the weights 3 / 2 / 2 / 1, since all four are full height.</li>
+  <li><strong>Two tiles share alpha's region</strong>, packed with weights
+  <code>3 / 2</code> because the first session has a subagent.</li>
+  <li><strong>Nothing is wasted.</strong> Every cell belongs to a tag row, a tile, or an
+  idle chip row.</li>
+  <li><strong>The narrowest tile</strong> (<code>scratch</code>, 13 cells of inner width)
+  drops to the shortened status line <code>run · 3m</code> instead of
+  <code>running · 3m</code>.</li>
+  <li><strong><code>epsilon</code> has no region</strong> — it is all-idle, so it exists
+  only in the footer.</li>
+</ul>
+
+<h2 id="pass1"><span class="num">3</span>Pass 1 — project regions</h2>
+
+<table>
+  <caption>R5.1 — what feeds the first squarify call.</caption>
+  <thead><tr><th>Rule</th><th>Detail</th></tr></thead>
+  <tbody>
+    <tr><td>Weight</td><td>Number of <strong>top-level</strong> sessions currently shown, counting <em>all states</em> — running, needs-you and idle.</td></tr>
+    <tr><td>Subagents</td><td><strong>Never</strong> add to a project's weight. A subagent is content inside its parent's tile, not a region of its own.</td></tr>
+    <tr><td>All-idle projects</td><td><strong>Excluded from the packing entirely.</strong> They appear only in the footer as <code class="m">hidden: &lt;name&gt; (N idle)</code>.</td></tr>
+    <tr><td>Input order</td><td><strong>First-appearance order, never weight-sorted.</strong></td></tr>
+    <tr><td>Edges</td><td>Adjacent regions snap to share exact edges — no visible gap, no overlap.</td></tr>
+  </tbody>
+</table>
+
+<div class="box why">
+  <span class="lab">Why first-appearance order, and why that reason changed</span>
+  <p>The ordering rule is kept because a weight-sort <strong>separated two project regions
+  the user needed to compare side by side</strong>. Note what it is <em>not</em> kept for:
+  the original justification was to hold screen position, and that justification was
+  retracted when a mutation test showed squarify gives no positional stability anyway
+  (§7). The rule survived; its reason was replaced.</p>
+</div>
+
+<h2 id="pass2"><span class="num">4</span>Pass 2 — session tiles</h2>
+
+<table>
+  <caption>R5.2 — weights for the per-region squarify call. Weight is <em>content
+  demand</em>, not urgency.</caption>
+  <thead><tr><th>Session</th><th>Weight</th></tr></thead>
+  <tbody>
+    <tr><td>idle</td><td class="m">1</td></tr>
+    <tr><td>running / needs-you / question</td><td class="m">2</td></tr>
+    <tr><td>+ per subagent</td><td class="m">+1</td></tr>
+  </tbody>
+</table>
+
+<div class="box rule">
+  <span class="lab">R6.1 — status never drives geometry</span>
+  <p>Attention state is expressed through <strong>colour, glyph and sort order only</strong>.
+  A <code>needs-you</code> tile is never drawn larger than a <code>running</code> one just
+  because it is more urgent. Making urgent tiles bigger is a rejected V2 idea
+  <span class="r">R10</span>.</p>
+</div>
+
+<h3>Idle sessions are not tiles at all</h3>
+
+<p>Idle sessions are <strong>pulled out of the tile packing entirely</strong> and rendered
+as a single chip row on the region's last row: <code>○ nick · age</code>, separated by two
+spaces, most-recent-first. Overflow becomes <code>+N idle</code>, and space for that is
+always reserved <span class="r">R5.2</span>. Only active sessions get packed into tiles.</p>
+
+<div class="box why">
+  <span class="lab">Why</span>
+  <p>A lone idle tile was <strong>the largest blank block on screen</strong> in testing. It
+  had the least to say and, being untethered from content, it held area that a content-bearing
+  tile could have used.</p>
+</div>
+
+<table>
+  <caption>Region-height thresholds for the idle row <span class="r">R5.2</span>.</caption>
+  <thead><tr><th>Region height</th><th>What renders</th></tr></thead>
+  <tbody>
+    <tr><td class="m">h ≥ 3</td><td>tag row + tiles + idle chip row</td></tr>
+    <tr><td class="m">h = 2</td><td>tag row + tiles; the idle row is dropped and its count folded into the tag row</td></tr>
+    <tr><td class="m">h = 1</td><td>tag row only</td></tr>
+  </tbody>
+</table>
+
+<p>And one precedence rule: if reserving a row for idle chips would leave no room for tiles,
+<strong>the idle row is dropped first</strong>. Tiles outrank chips.</p>
+
+<h2 id="ladder"><span class="num">5</span>The content ladder</h2>
+
+<div class="box rule">
+  <span class="lab">R5.3</span>
+  <p>Tile content is a <strong>total function of the tile's own inner width and
+  height</strong> — never a fixed line count. <code>wi</code> = outer tile width − 2, for the
+  1-column inset on each side.</p>
+</div>
+
+<table class="grid">
+  <caption>The regime table. A <code>/</code> separates what appears on successive rows.</caption>
+  <thead><tr><th><code>wi</code></th><th><code>h = 1</code></th><th><code>h = 2</code></th><th><code>h = 3–4</code></th><th><code>h ≥ 5</code></th></tr></thead>
+  <tbody>
+    <tr><th>&lt; 3</th><td>colour only</td><td>colour only</td><td>colour only</td><td>colour only</td></tr>
+    <tr><th>3–5</th><td>glyph</td><td>glyph / age</td><td>glyph / age</td><td>glyph / age</td></tr>
+    <tr><th>6–11</th><td><code>glyph age</code></td><td><code>glyph age</code> / nick</td><td><code>glyph age</code> / nick / —</td><td>same as <code>h = 2</code></td></tr>
+    <tr><th>≥ 12</th><td><code>glyph nick · age</code></td><td><code>glyph nick</code> / <code>status · age</code></td><td><strong>compact</strong></td><td><strong>extended</strong></td></tr>
+  </tbody>
+</table>
+
+<div class="ladder">
+  <div>
+    <div class="tile" style="width:14px;height:13px;background:#1b2a45"></div>
+    <div class="cap">wi &lt; 3<br>colour only</div>
+  </div>
+  <div>
+    <div class="tile" style="width:44px;height:26px;background:#1b2a45;color:#7aa2f7">▶
+9m</div>
+    <div class="cap">wi 3–5<br>glyph / age</div>
+  </div>
+  <div>
+    <div class="tile" style="width:78px;height:26px;background:#1b2a45;color:#7aa2f7">▶ 9m
+Herm…</div>
+    <div class="cap">wi 6–11<br>glyph age / nick</div>
+  </div>
+  <div>
+    <div class="tile" style="width:150px;height:47px;background:#1b2a45;color:#7aa2f7">▶ Hermes
+editing: main.rs
+running · 45s</div>
+    <div class="cap">wi ≥ 12, h 3–4<br>compact</div>
+  </div>
+  <div>
+    <div class="tile" style="width:210px;height:96px;background:#1b2a45;color:#7aa2f7">▶ Hermes
+cargo test ·
+--release
+running · 45s
+
+fix flaky test
+running: grep
+editing: main.rs
+running: read</div>
+    <div class="cap">wi ≥ 12, h ≥ 5<br>extended</div>
+  </div>
+</div>
+
+<h4>Status line — two widths</h4>
+<table>
+  <caption>Elapsed time is measured from a different moment in each state.</caption>
+  <thead><tr><th>Inner width</th><th>Form</th><th>Examples</th></tr></thead>
+  <tbody>
+    <tr><td class="m">wi ≥ 16</td><td>full text</td><td class="m">question · 9m · needs-you · 22m · running · 3m · idle · 51m</td></tr>
+    <tr><td class="m">12 ≤ wi &lt; 16</td><td>shortened</td><td class="m">? 9m · need · 22m · run · 3m · idle · 51m</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li><code>needs-you</code> counts since <strong>the turn ended</strong>.</li>
+  <li><code>running</code> counts since <strong>the current turn started</strong>.</li>
+  <li><code>idle</code> counts since <strong>the session's last update</strong>.</li>
+  <li>If a session has subagents but there is no room for dedicated subagent lines, the
+  status line gets a <code>↳N</code> suffix — but only when at least 4 cells remain on that
+  line.</li>
+</ul>
+
+<h4>Compact form <span class="r">R5.3</span> — wi ≥ 12, h = 3–4</h4>
+<ol>
+  <li><code>glyph nick</code>, bold, in the state's colour.</li>
+  <li>One content line, truncated with <code>…</code> — <strong>question:</strong> first line
+  of the final assistant text · <strong>running:</strong> the current action ·
+  <strong>needs-you (plain) and idle:</strong> the wire title.</li>
+  <li>The status line.</li>
+  <li>Only if <code>h = 4</code>: the first subagent line <code>↳ nick action</code>,
+  truncated — otherwise blank.</li>
+</ol>
+
+<h2 id="extended"><span class="num">6</span>The extended form</h2>
+
+<p>For <code>wi ≥ 12</code> and <code>h ≥ 5</code>, the tile is built from <strong>priority
+content blocks</strong> plus exactly one <strong>elastic block</strong> that absorbs
+whatever rows are left. Priority 1 is never dropped. If the fixed blocks alone don't fit,
+blocks are dropped from the <em>bottom</em> of the priority list until what remains fits.</p>
+
+<p>Text word-wraps to <code>wi</code>, hard-breaking a single word longer than
+<code>wi</code>. A block wraps when it has more than one row available and truncates with
+<code>…</code> when it has exactly one.</p>
+
+<div class="box rule">
+  <span class="lab">The rule that keeps it honest</span>
+  <p><strong>Any rows left after the elastic block runs out of content stay tinted
+  blank.</strong> No filler, no decoration. Filling 100% of the screen is the
+  <em>lowest</em>-priority goal in the whole layout (§8).</p>
+</div>
+
+<h4>Running</h4>
+<ol>
+  <li><code>glyph nick</code>, bold</li>
+  <li>current action — wraps up to 2 rows</li>
+  <li>status line</li>
+  <li>one line per subagent: <code>↳ nick action</code>, truncated</li>
+  <li>(blank row +) wire title, dim, up to 2 rows</li>
+  <li>(blank row +) <code>files: a.rs, b.rs, …</code>, dim, up to 2 rows — <strong>omitted
+  entirely if no files were touched this turn</strong></li>
+  <li><strong>elastic</strong> — recent-actions list: entries <em>before</em> the current
+  action, so block 2 is never repeated. Oldest first, dim, with the most recent 2 entries
+  shown brighter.</li>
+</ol>
+
+<h4>Question</h4>
+<ol>
+  <li><code>glyph nick</code>, bold</li>
+  <li>the question badge</li>
+  <li>(blank row +) <strong>elastic</strong> — final assistant text, wrapped. On overflow
+  the <strong>tail is kept</strong>, because the question is at the end, and the first shown
+  row becomes <code>⋯</code>.</li>
+  <li>(blank row +) <code>you: &lt;last user prompt&gt;</code>, dim, up to 3 rows</li>
+  <li>(blank row +) wire title, dim, up to 2 rows</li>
+  <li>subagent lines — rare here, so they sit after the title</li>
+</ol>
+<p>Drop order when things don't fit: <strong>6, then 5, then 4.</strong> The elastic block
+always keeps at least 1 row as long as <code>h ≥ 3</code>.</p>
+
+<h4>Needs-you (plain)</h4>
+<ol>
+  <li><code>glyph nick</code>, bold</li>
+  <li>wire title, up to 2 rows</li>
+  <li>status line</li>
+  <li>subagent lines</li>
+  <li>(blank row +) <strong>elastic</strong> — final assistant text (what the session
+  finished), tail-kept with <code>⋯</code> on overflow</li>
+  <li>(blank row +) <code>you: &lt;last user prompt&gt;</code>, dim, up to 3 rows</li>
+</ol>
+
+<h4>Idle</h4>
+<ol>
+  <li><code>glyph nick</code>, dim bold</li>
+  <li>wire title, dim, up to 2 rows</li>
+  <li>status line</li>
+  <li>(blank row +) <strong>elastic</strong> — final assistant text, dim, tail-kept</li>
+</ol>
+
+<h3>Recompute rules <span class="r">R5.4</span></h3>
+<p>The grid is recomputed on every resize, and on every redraw where a session's
+classification, project or tile membership, weight, or ordering has actually changed. There
+is no caching anywhere in the layout. A larger terminal fits <strong>more regions per row
+and more tiles per region</strong> — it never just stretches the existing boxes into empty
+space.</p>
+
+<h2 id="motion"><span class="num">7</span>Position is not stable — on purpose</h2>
+
+<div class="box rule">
+  <span class="lab">R5.7 — a deliberate reversal</span>
+  <p>Project region <strong>screen position is not guaranteed stable</strong>, and on-screen
+  reading order is not guaranteed to match first-appearance order either. Do not implement
+  any compensating logic — sticky slots, position memoisation, or anything else. It was
+  considered and explicitly rejected.</p>
+</div>
+
+<p>The evidence is a mutation test on the real build: adding sessions, then adding a
+project, moved <strong>3 of 4 project regions to a different screen column</strong> — not
+just to a different size — on the very next redraw.</p>
+
+<div class="box why">
+  <span class="lab">Why it was accepted</span>
+  <p>The root cause is that squarify preserves input <em>order</em> for how it packs
+  regions, and packing order is not the same thing as final on-screen <em>position</em>. An
+  earlier decision — “stable slots over priority reflow” — was retracted on this evidence.
+  The user's ruling: <strong>accept the motion.</strong> Area-proportional packing at real
+  usage scale is worth more than positional memory.</p>
+</div>
+
+<h2 id="limits"><span class="num">8</span>Minimums, degrade, and empty</h2>
+
+<table>
+  <caption>R5.5 — floors. No layout ever draws an unreadable sliver.</caption>
+  <thead><tr><th>Element</th><th>Minimum</th><th>If it doesn't fit</th></tr></thead>
+  <tbody>
+    <tr><td>Session tile</td><td class="m">12 × 5</td><td>10 × 3 usable after the 1-cell inset</td></tr>
+    <tr><td>Project region</td><td class="m">14 × 7</td><td>Collapses to one project-summary tile: name + status counts</td></tr>
+    <tr><td>Whole viewport</td><td class="m">40 × 12</td><td>Centred <code>terminal too small</code> panel, nothing else drawn</td></tr>
+  </tbody>
+</table>
+
+<div class="box open">
+  <span class="lab">Open</span>
+  <p>These numbers were set for an earlier 4-line card and need rechecking now that tile
+  content is a continuous ladder. They may be able to shrink.</p>
+</div>
+
+<h3>Caps and overflow <span class="r">R5.6</span></h3>
+<p>At most <strong>3 session tiles per project</strong>. Visible three are chosen in this
+order:</p>
+<ol>
+  <li>sessions needing a reply (the question badge)</li>
+  <li>longest-waiting <code>needs-you</code></li>
+  <li><code>running</code></li>
+  <li>most recently updated <code>idle</code></li>
+</ol>
+<p>Everything past the visible three collapses into one small, <strong>unweighted</strong>
+overflow chip (<code>+N idle</code> / <code>+N sessions</code>). Subagents are shown as
+first-class tiles with a <code>↳</code> prefix inside their parent's content — never as a
+third nesting level.</p>
+
+<h3>The degrade hierarchy <span class="r">R9.2</span></h3>
+<div class="term">full session tiles  →  project-summary tiles  →  “+N projects” chip  →  terminal too small</div>
+
+<p>The priority behind that order, most important first:</p>
+<ol>
+  <li><strong>Readability</strong></li>
+  <li><strong>Project presence</strong> — every project stays visible in some form as long
+  as possible</li>
+  <li><strong>Proportionality</strong></li>
+  <li><strong>Filling 100% of the screen</strong> — explicitly the lowest priority</li>
+</ol>
+
+<p>That last place is load-bearing. The layout will happily leave space unused — tinted
+blank rows at the bottom of a tile, for instance — rather than break a higher rule to fill
+it.</p>
+
+<h3>Empty state <span class="r">R9</span></h3>
+<p>When zero sessions are active in the window, the body shows a centred panel rather than
+a fill of tiny idle tiles:</p>
+<div class="term">No sessions updated in last 10m — 6 older sessions hidden — press ] or a</div>
+<p>Idle sessions only ever appear as context inside a project that has at least one active
+session. This panel is what shows when no project qualifies for even that.</p>
+
+<h3>Accent colour goes on exactly one thing <span class="r">R5.11</span></h3>
+<p>A project's accent colour is applied to <strong>one small element only</strong> — the
+project name in its region's tag row. Never a whole tile background, never a tile border,
+never a project border.</p>
+<div class="box why">
+  <span class="lab">Why the old default was dropped</span>
+  <p>Six saturated project borders <strong>competed with the state colours</strong>
+  (running / needs-you / idle) that are supposed to carry the user's attention, and were
+  identified as the reason an earlier build looked like “nothing pops”. In the current
+  layout there are no borders at all: <strong>a tile's background carries its state, and a
+  badge carries urgency.</strong></p>
+</div>
+
+<div class="pager">
+  <a href="architecture.html"><span class="lbl">Previous</span>← Architecture &amp; data model</a>
+  <a class="next" href="visuals.html"><span class="lbl">Next</span>Cards &amp; the naming scheme →</a>
+</div>
+
+</main>
+</div>
+</body>
+</html>
