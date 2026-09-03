@@ -1,0 +1,90 @@
+# PLAN - claude-dashboard-support
+
+## Status
+
+Scoping signed off by Terra on 2026-09-03; decomposing M1.
+Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
+
+## Boundaries
+
+This run adds Claude Code as an opt-in, read-only harness observed by the
+dashboard. It accepts user-configured Claude lifecycle hooks through a local
+Unix socket, strictly allowlists metadata, maps live lifecycle state into the
+existing provider-neutral snapshot/tombstone boundary, and documents manual
+configuration and removal.
+
+The run must preserve existing OpenCode behavior, must not read Claude
+transcripts, must not control Claude sessions, and must not write Claude
+configuration or persistent monitoring state.
+
+## Out Of Scope
+
+- Transcript reading, tailing, parsing, summarization, or historical discovery.
+- Session control, prompt submission, attach/resume, interrupt, or mutation.
+- Automatic Claude hook installation or any write to `~/.claude` or project
+  Claude settings.
+- Public network monitoring, remote endpoints, and a persistent event journal.
+- Treating `claude agents --json` as the authoritative foreground session set.
+- Session zoom or transcript trace views.
+
+## Project Ground Truth
+
+- `CONTRIBUTING.md` requires lean dependencies, stderr-only logs, no disk state,
+  and cargo build/test/clippy/format checks.
+- Dashboard contracts live under `docs/specs/dashboard/`; the existing adapter
+  boundary is in `crates/dashboard/src/adapter.rs` and snapshots in
+  `crates/dashboard/src/snapshot.rs`.
+- The source plan contains the evidence backlog, lifecycle decisions, privacy
+  boundary, acceptance criteria, and expected file areas. Contracts extract
+  only task-relevant rules from it.
+- All Claude experiments use isolated temporary `HOME` and
+  `CLAUDE_CONFIG_DIR`; the real Claude configuration remains untouched.
+
+## Milestones
+
+- **M1 - evidence and ingress contract:** close S1-S7, choose the supported
+  lifecycle set and bounded stale policy, define the allowlisted IPC seam, and
+  write the Claude-specific privacy/configuration spec.
+- **M2 - adapter:** implement Claude lifecycle state, project identity,
+  provider-neutral snapshots, tombstones, and unit/IPC feature tests.
+- **M3 - runtime and release verification:** wire opt-in startup and the hook
+  subcommand, document installation/removal/validation, then run isolated CLI,
+  workspace, clippy, format, privacy, and rollback gates.
+
+## Run Config - Roles
+
+| Role | Binding | Responsibility |
+|---|---|---|
+| advisor | `terra`, one persistent session | Delivery profile, Review Frames, scoping/milestone sign-off, escalations |
+| runner | `clerk`, one per reviewed task | Runs `refine-loop`, records gate reports, performs mechanical verification |
+| implementer | `deepseek-flash` | Evidence work and production implementation |
+| reviewer | `luna-high` | Independent refine-loop review, adversarial QA/privacy coverage, no self-fixing |
+| conductor | this session | Judgment, contracts, stage transitions, bookkeeping, commits, milestone fit |
+
+Luna High is never the implementer. The reviewer may write tests that expose
+  defects, but must not weaken or repair those tests.
+
+## Git Policy
+
+- Run branch: `conductor/claude-dashboard-support`.
+- The branch was created from the committed dashboard state on
+  `conductor/opencode-dashboard`, not `main`, because this feature depends on
+  that completed dashboard and the current worktree already contains unrelated
+  dirty changes. Those changes are carried untouched and are not owned by any
+  task in this run.
+- Reviewed tasks are committed by the runner at loop-pass: contract owns-list,
+  gate report, and `deferred.md` only; never `git add -A` or `git add -u`.
+- Bare tasks and milestone artifacts are committed by the conductor at their
+  gates. No force-push, history rewrite, or direct changes to `main`.
+- Any pre-existing dirty file is outside task owns-lists unless explicitly
+  re-scoped and approved before a task starts.
+
+## Decomposition
+
+Stubbed until Terra signs off scoping. Planned task sequence:
+
+- T01: isolated Claude lifecycle and identity evidence (S1-S5).
+- T02: local IPC, privacy boundary, Claude-specific specification (S6-S7).
+- T03: Claude adapter and feature verification through IPC.
+- T04: runtime wiring, hook command, and user documentation.
+- T05: release regression and rollback verification.
