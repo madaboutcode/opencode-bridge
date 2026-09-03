@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; M1 re-cut sealed and ready for T01b execution after T01 failed its final boundary review.
+Scoping signed off by Terra on 2026-09-03; T01c final M1 re-cut is sealed and ready for execution.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -98,8 +98,13 @@ Luna High is never the implementer. The reviewer may write tests that expose
   timing statement in the four-entry T01 deferral record, and re-verify the
   complete T01 evidence boundary. Reviewed; depends on T01 and is the M1 re-cut
   gate.
+- T01c: normalize the remaining raw empty-discovery representation, establish
+  the current evidence set as an explicit content-hash baseline, and adopt it
+  durably without claiming historical unchanged lineage. Reviewed; depends on
+  T01b and is the final M1 re-cut gate. The conductor performs the one bounded
+  correction; Luna performs the one verification.
 - T02: local IPC, privacy boundary, and Claude-specific specification (S6-S7).
-  Reviewed; depends on T01b and runs only after its gate report and commit.
+  Reviewed; depends on T01c and runs only after its gate report and commit.
 
 Planned later tasks, to be decomposed after each milestone review:
 

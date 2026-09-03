@@ -90,3 +90,11 @@ Chosen: the conductor session is also the runner. DeepSeek Flash remains the imp
 Why: the environment blocks subagent nesting at depth 1, and the CLI workaround made process supervision and status reporting unreliable. Direct top-level launches preserve the intended model bindings and make each process observable.
 Limitations: conductor and runner duties share one session, so the conductor must remain artifact-blind on ordinary passed tasks and rely on Luna's independent report; escalation and milestone fit remain the only diff-reading exceptions.
 Reversal: restore a separate runner only if the environment provides reliable nested-agent supervision without the CLI workaround.
+
+## 2026-09-03 - T01b failure and T01c re-cut
+
+Considered: accept T01b's adoption, redact all permitted metadata, or re-cut the evidence adoption with explicit provenance.
+Chosen: T01b fails because its v2 boundary could not prove unchanged adoption of untracked T01 artifacts and its strict wording classified permitted metadata ambiguously. T01c will normalize only the raw empty-discovery serialization, retain the Claude version as labeled metadata, generate a content-hash manifest for the current spike set plus `deferred.md`, and commit that exact current baseline without claiming historical lineage. T02 depends on T01c.
+Why: Terra ruled the `2.1.259` version metadata permitted, `[]` raw serialization must be normalized, and untracked adoption cannot prove “unchanged.” A manifest establishes durable current provenance without pretending to reconstruct failed-T01 history.
+Limitations: T01 remains failed and uncommitted; T01c is the final M1 re-cut gate and uses one conductor correction plus one fresh Luna verification. Authenticated behavior and full E2E remain T05 scope.
+Reversal: if T01c's manifest, normalization, or four deferrals fail review, stop and re-cut M1 again rather than starting T02.
