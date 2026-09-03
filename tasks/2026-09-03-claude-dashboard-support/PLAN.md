@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; M1 contracts sealed and ready for execution.
+Scoping signed off by Terra on 2026-09-03; M1 re-cut sealed and ready for T01b execution after T01 failed its final boundary review.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -63,13 +63,15 @@ configuration or persistent monitoring state.
 | Role | Binding | Responsibility |
 |---|---|---|
 | advisor | `terra`, one persistent session | Delivery profile, Review Frames, scoping/milestone sign-off, escalations |
-| runner | `clerk`, one per reviewed task | Runs `refine-loop`, records gate reports, performs mechanical verification |
+| runner | this conductor session | Runs the review-loop protocol directly, records gate reports, performs bookkeeping and mechanical verification |
 | implementer | `deepseek-flash` | Evidence work and production implementation |
 | reviewer | `luna-high` | Independent refine-loop review, adversarial QA/privacy coverage, no self-fixing |
 | conductor | this session | Judgment, contracts, stage transitions, bookkeeping, commits, milestone fit |
 
 Luna High is never the implementer. The reviewer may write tests that expose
-  defects, but must not weaken or repair those tests.
+  defects, but must not weaken or repair those tests. The conductor/runner does
+  not replace Luna's independent review; it only coordinates the passes and
+  records the gate.
 
 ## Git Policy
 
@@ -91,9 +93,13 @@ Luna High is never the implementer. The reviewer may write tests that expose
 ### M1 - evidence and ingress contract
 
 - T01: isolated Claude lifecycle and identity evidence (S1-S5). Reviewed;
-  starts the milestone.
+  failed after its final bounded review; no commit.
+- T01b: adopt corrected T01 evidence unchanged, correct the unsupported async
+  timing statement in the four-entry T01 deferral record, and re-verify the
+  complete T01 evidence boundary. Reviewed; depends on T01 and is the M1 re-cut
+  gate.
 - T02: local IPC, privacy boundary, and Claude-specific specification (S6-S7).
-  Reviewed; depends on T01 and runs after its gate report and commit.
+  Reviewed; depends on T01b and runs only after its gate report and commit.
 
 Planned later tasks, to be decomposed after each milestone review:
 

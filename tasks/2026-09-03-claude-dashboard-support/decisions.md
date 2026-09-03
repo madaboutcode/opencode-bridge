@@ -42,3 +42,51 @@ Chosen: T01 must exercise the real Claude CLI and configured hook against an iso
 Why: Terra found that T01's no-production-source owns-list cannot prove an adapter/event path that later tasks create. The release requirement remains unchanged; only its checkpoint is corrected.
 Limitations: T01/T02 cannot claim integrated dashboard validation. T05 remains blocked if a real Claude CLI or credentials are unavailable.
 Reversal: reopen the decomposition if T03/T04 cannot expose a deterministic test seam for observing the provider-neutral event path.
+
+## 2026-09-03 - T01 escalation disposition
+
+Considered: ship T01's partial evidence, defer all residuals, or authorize one targeted correction/review pass.
+Chosen: Terra authorized one targeted pass. Correct now: R1 exact conservative event allowlist, R2 separate observed traces, R3 CLI exit-status capture, R4 common timing markers, and R5 removal of the transcript-path template and `authentication_failed` value. Keep credential-dependent lifecycle, discovery, async-success, exit-path, and subagent evidence deferred to T05.
+Why: R1/R2 affect downstream contract decisions and R5 violates the task's explicit evidence boundary; R3/R4 are cheap completeness fixes. The defects are evidence-record corrections, not a contract or decomposition failure.
+Limitations: T01 may close as a blocked-but-complete evidence gate only after the targeted pass. Production exposure remains blocked until T05 provides authenticated integrated evidence.
+Reversal: if the authorized pass finds a new above-line issue or cannot close R1-R5 within scope, return to escalation rather than starting T02.
+
+## 2026-09-03 - Final bounded T01 correction
+
+Considered: abandon T01, consume its partial evidence, or authorize one materially bounded final correction with fresh agents.
+Chosen: Terra authorized one fresh top-level DeepSeek Flash correction and one fresh Luna High verification. R2 must retain only separately observed traces with no cross-trace ordering claim; R4 must retract unsupported async ordering/viability claims and retire invalid common-marker evidence; R5 must remove all literal prompt text, `rate limit` examples, and CLI stdout/stderr forwarding from every owned probe and artifact. R1/R3 and the four T05 deferrals remain intact.
+Why: these are direct violations of T01 v2's closed metadata-only evidence boundary or unsupported evidence claims. A narrow fresh pass changes the failed execution shape without reopening the whole loop.
+Limitations: this is the final bounded pass; if its acceptance boundary is not clean, T01 fails and M1 must be re-cut. T05 still owns authenticated lifecycle and complete integrated E2E evidence.
+Reversal: do not start T02 if Luna finds any boundary violation; return to Decomposition/M1 re-cut as Terra directed.
+
+## 2026-09-03 - Final correction execution recovery
+
+Considered: repeat the previous long correction prompt, continue the stale CLI wrappers, or change execution shape.
+Chosen: terminate stale reviewer wrappers and make one compact, direct top-level DeepSeek edit-only attempt followed by one fresh direct Luna verification. No nested `opencode run` wrapper, no background supervision claim, and no additional open-ended pass.
+Why: the prior direct DeepSeek session ended after a preamble with no file changes, while an inherited Luna CLI wrapper remained parked without useful output. The execution failure is operational, not evidence that the bounded corrections are complete.
+Limitations: this remains Terra's final bounded correction authorization; if the compact attempt does not produce a clean owns-list, T01 fails and M1 must be re-cut.
+Reversal: stop and escalate rather than retrying if this final execution attempt fails or Luna finds any above-line boundary violation.
+
+## 2026-09-03 - T01 failure and M1 re-cut
+
+Considered: accept T01 with its R4 wording, run another T01 correction, or re-cut M1 around the remaining run-level record defect.
+Chosen: T01 fails and remains uncommitted. M1 is re-cut with T01b, a reviewed one-file cleanup that removes the unsupported async-before-CLI-exit claim from `deferred.md`, preserves exactly the four credential-dependent T05 deferrals, and re-verifies the complete T01 boundary. T02 depends on T01b.
+Why: Luna found R4 still above the line after Terra's final bounded pass. The claim is unsupported by the probe's missing CLI boundary marker and violates the final acceptance boundary; Terra explicitly directed an M1 re-cut rather than another open-ended pass.
+Limitations: the authenticated scenario and all other credential-dependent evidence remain deferred to T05; no production scope changes.
+Reversal: if T01b cannot close the exact R4 wording without changing the four deferrals or the approved profile, return to Terra for another decomposition decision.
+
+## 2026-09-03 - T01b evidence adoption boundary
+
+Considered: let T01b commit only its one-file deferral correction or adopt the uncommitted corrected T01 evidence artifacts from failed T01.
+Chosen: T01b owns the current T01 spike directory and `deferred.md`, edits only `deferred.md`, and commits the spike artifacts unchanged after a clean boundary verification.
+Why: T01 failed without a commit, but its corrected evidence must become durable before T02 can consume it. The ownership change preserves the evidence while keeping the re-cut's implementation scope to one wording correction.
+Limitations: T01's failed report remains historical; T01b's report is the gate for adopting the evidence. No production code or authenticated claims are added.
+Reversal: re-cut again if the adopted spike files differ during T01b or the four deferrals cannot remain intact.
+
+## 2026-09-03 - Runner binding correction
+
+Considered: retain Clerk as a nested-agent runner using `opencode run`, or have the conductor run the review-loop protocol directly.
+Chosen: the conductor session is also the runner. DeepSeek Flash remains the implementer and Luna High remains the independent reviewer; no nested `opencode run` process is used for new tasks.
+Why: the environment blocks subagent nesting at depth 1, and the CLI workaround made process supervision and status reporting unreliable. Direct top-level launches preserve the intended model bindings and make each process observable.
+Limitations: conductor and runner duties share one session, so the conductor must remain artifact-blind on ordinary passed tasks and rely on Luna's independent report; escalation and milestone fit remain the only diff-reading exceptions.
+Reversal: restore a separate runner only if the environment provides reliable nested-agent supervision without the CLI workaround.
