@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; M1 task gates are closed through committed T02; T03 is clean and pending commit closure.
+Scoping signed off by Terra on 2026-09-03; M1/M2 task gates are closed through committed T03; T04 contract v1 is sealed and ready for implementation.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -108,8 +108,11 @@ Luna High is never the implementer. The reviewer may write tests that expose
   as `aeb8317`.
 - T03: Claude adapter/state integration. Design, implementation plan, and
   contract v1 sealed by Terra; one implementation pass and one fresh Luna
-  verification are clean; gate report is ready and commit closure is pending.
-  Depends on T01c and T02; T04 remains blocked until T03 is committed.
+  verification are clean; committed as `e631129`.
+- T04: Claude runtime and hook command. Design, implementation plan, and
+  contract v1 sealed by Terra; ready for one implementation pass, mandatory
+  spec validation, and one fresh Luna verification. `main.rs` is approved only
+  for isolated T04 hunks; its unrelated icon-mode changes remain untouched.
 
 Planned later tasks, to be decomposed after each milestone review:
 

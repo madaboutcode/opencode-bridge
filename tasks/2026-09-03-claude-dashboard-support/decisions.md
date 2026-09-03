@@ -162,3 +162,11 @@ Terra reviewed the T03 design, implementation plan, and contract and signed off 
 ## 2026-09-03 - T03 gate closure
 
 T03 is clean after one bounded DeepSeek implementation pass and one fresh Luna verification. The gate covers the typed v1 decoder, three observed lifecycle mappings, provider-neutral snapshots/tombstone, project identity fallback, real socket-to-adapter feature path, and the T04/T05 boundaries. The first Luna request failed before review with HTTP 404 and is not counted. Commit T03 with its implementation, tests, directly affected docs, and gate report; keep T04 blocked until the commit is verified.
+
+## 2026-09-03 - T04 runtime decomposition
+
+Considered: put listener/command logic in `main.rs`, add a separate binary, or isolate the runtime pieces in `claude/command.rs` and `claude/listener.rs` with narrow main composition. Chosen: Candidate B, preserving the existing `dashboard claude-hook` command and keeping T02 parsing/delivery plus T03 decoding/channel boundaries authoritative. The listener binds before adapters, bounds each local connection, and fails closed without affecting OpenCode. Limitation: `main.rs` already has unrelated dirty icon-mode changes; Terra must explicitly approve only isolated T04 hunks before implementation. Reversal: re-cut if startup wiring cannot be added without touching that hunk or shared/runtime boundaries.
+
+## 2026-09-03 - T04 decomposition sign-off
+
+Terra reviewed the T04 design, implementation plan, and contract and sealed the v1 Review Frame. The narrow `main.rs` re-scope is approved for isolated command-dispatch and startup/shutdown composition additions only; the pre-existing icon-mode hunk remains verbatim and unstaged. T04 is released for one DeepSeek implementation pass, mandatory separate spec validation, and one fresh Luna verification. T05 retains authenticated E2E and final staleness ownership.
