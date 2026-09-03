@@ -122,3 +122,11 @@ Chosen: T02 v4 owns the required `docs/specs/CLAUDE.md` update registering `clau
 Why: the feature plan explicitly requires a Claude-specific spec, while the current convention says five files and “no more.” Creating it without updating the convention would knowingly violate project ground truth.
 Limitations: this is a documentation-convention expansion, not permission to create additional spec files; T02 must retain the one-scenario-per-requirement and consumer-lens rules.
 Reversal: return to Decomposition if the convention update reveals an existing spec-tree conflict that cannot be resolved without changing unrelated specs.
+
+## 2026-09-03 - T02 spec-index update
+
+Considered: leave `docs/specs/README.md` with the old five-file index or include the index in T02's convention correction.
+Chosen: T02 v5 owns `docs/specs/README.md` and must register `dashboard/claude.md` in both the prose index and the file-map table, alongside the existing `docs/specs/CLAUDE.md` update.
+Why: the index is part of the documented spec-tree entry point and currently contradicts the sixth-file convention; leaving it stale would make the feature undiscoverable and the project documentation internally inconsistent.
+Limitations: T02 still creates only one new spec file and does not alter unrelated requirements or implementation files.
+Reversal: return to Decomposition if the index exposes another unrelated documentation conflict.

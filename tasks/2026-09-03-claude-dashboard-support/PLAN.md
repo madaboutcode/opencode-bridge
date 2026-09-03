@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; T01c is committed; T02 v4 is sealed and ready for execution.
+Scoping signed off by Terra on 2026-09-03; T01c is committed; T02 is being re-cut to update the spec index alongside the sixth spec file.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -104,7 +104,7 @@ Luna High is never the implementer. The reviewer may write tests that expose
   T01b and is the final M1 re-cut gate. The conductor performs the one bounded
   correction; Luna performs the one verification.
 - T02: local IPC, privacy boundary, and Claude-specific specification (S6-S7).
-  Reviewed; depends on T01c and runs only after its v4 contract, convention
+  Reviewed; depends on T01c and runs only after its v5 contract, convention
   update, gate report, and commit.
 
 Planned later tasks, to be decomposed after each milestone review:
