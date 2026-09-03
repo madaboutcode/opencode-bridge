@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; T01c is committed; T02 is being re-cut to own all spec-tree registries alongside the sixth spec file.
+Scoping signed off by Terra on 2026-09-03; M1 task gates are closed through committed T02; milestone sign-off is pending.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -104,8 +104,12 @@ Luna High is never the implementer. The reviewer may write tests that expose
   T01b and is the final M1 re-cut gate. The conductor performs the one bounded
   correction; Luna performs the one verification.
 - T02: local IPC, privacy boundary, and Claude-specific specification (S6-S7).
-  Reviewed; failed its first review; v6 owns all spec-tree registries and gets
-  one bounded correction plus one fresh Luna verification before its gate.
+  Reviewed; failed its first review; v6 correction verified clean and committed
+  as `aeb8317`.
+- T03: Claude adapter/state integration. Design, implementation plan, and
+  contract v1 sealed by Terra; ready for one implementation pass and one fresh
+  Luna verification. Depends on T01c and T02; T04 remains blocked until T03 is
+  clean and committed.
 
 Planned later tasks, to be decomposed after each milestone review:
 

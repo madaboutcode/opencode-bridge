@@ -138,3 +138,23 @@ Chosen: T02 v6 owns `overview.md` in addition to the convention and root index; 
 Why: Terra ruled `overview.md` is a spec-tree registry, not unrelated documentation. Leaving it stale would make the six-file convention internally contradictory.
 Limitations: the added ownership is documentation-only; no adapter, library, runtime, global Claude configuration, or transcript work enters T02.
 Reversal: re-cut again if the three registries cannot be made consistent without changing unrelated requirements.
+
+## 2026-09-03 - T02 v6 gate closure
+
+Considered: advance directly to T03 after the T02 implementation report, or require the sealed v6 correction and independent review.
+Chosen: T02 is clean and committed as `aeb8317` after one bounded DeepSeek correction and one fresh Luna verification. M1 now pauses for cross-task milestone sign-off before T03 decomposition.
+Why: Luna verified the user-scoped socket, end-to-end delivery deadline, three six-file registries, R15 structure, real busy-listener outcome, captured-log privacy, and preservation of T01c/T05 boundaries.
+Limitations: macOS promptly refuses saturated Unix connections, so the test proves exact `ListenerUnavailable` mapping and bounded completion; Linux blocking behavior remains platform runtime coverage. Authenticated full-path evidence remains T05.
+Reversal: return to M1 escalation if milestone review finds a cross-task mismatch; do not spawn T03 before sign-off.
+
+## 2026-09-03 - T03 adapter decomposition
+
+Considered: put wire decoding, lifecycle state, and adapter orchestration in one module; let T04's listener own lifecycle mapping; or split the Claude module into wire, state, and adapter layers.
+Chosen: T03 uses `wire.rs` for versioned envelope decoding, `state.rs` for pure metadata-only transitions and snapshots, and `mod.rs` for the `HarnessAdapter` channel loop. It registers the module in `lib.rs`, proves the real socket-to-adapter feature path, and updates directly affected adapter/overview documentation.
+Why: this keeps Claude protocol volatility and lifecycle policy out of the provider-neutral core and prevents T04 runtime wiring from knowing event semantics. The split is the smallest boundary that gives pure state tests and a narrow listener integration point.
+Limitations: only T01c's three observed events are supported; five-minute staleness, successful-turn events, async viability, startup gaps, exit paths, and subagent identity remain provisional/deferred to T05.
+Reversal: return to Decomposition if the typed channel or decoder requires changes to shared snapshots, the T02 hook, or runtime startup.
+
+## 2026-09-03 - T03 decomposition sign-off
+
+Terra reviewed the T03 design, implementation plan, and contract and signed off Candidate B. T03 is released for one DeepSeek implementation pass and one fresh Luna verification. Its boundary is adapter registration, typed wire decoding, pure Claude state transitions, feature tests, and directly affected documentation; T04 owns listener/startup and T05 owns authenticated E2E and final staleness policy.
