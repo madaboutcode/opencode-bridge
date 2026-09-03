@@ -30,7 +30,7 @@ pointers below for detail this file doesn't carry.
 | `layout.md` | R5-R5.11, R9-R9.2 |
 | `visuals.md` | R6, R6.1-R6.3, R6.7, R6.8 |
 | `interactions.md` | R7-R7.1, R8-R8.1 |
-| `claude.md` | R11-R17 (the opt-in Claude-monitoring capability: hook ingress, privacy boundary, local socket) |
+| `claude.md` | R11-R17 (the opt-in Claude-monitoring capability: hook ingress, privacy boundary, local socket, and the adapter's lifecycle mapping — experimental until T04 listener wiring) |
 
 ## Scope
 
@@ -70,9 +70,11 @@ pointers below for detail this file doesn't carry.
   wire format directly. It sits behind a boundary called the `HarnessAdapter`:
   each coding-agent tool the dashboard can watch ("harness") gets its own
   adapter, and only the adapter knows how that harness's wire protocol works.
-  The opencode adapter is the only one that exists in V1, but the core is
-  written so a second harness could be added later without changing how the
-  core works. The full contract for this boundary — what an adapter must
+  V1 ships the opencode adapter; a second, **opt-in** Claude hook adapter
+  (`claude.md` R11-R17) is implemented on the same boundary and is
+  experimental until its listener startup wiring lands (T04). The core is
+  written so any harness can be added without changing how the core works.
+  The full contract for this boundary — what an adapter must
   produce, how sessions and projects are identified, how staleness is
   handled — lives in `client.md` (R1.3 full, R1.4-R1.8). This file only
   establishes that the boundary exists.
@@ -82,6 +84,11 @@ pointers below for detail this file doesn't carry.
   snapshot shape (title, status, current action, etc.) and never touches an
   opencode-specific field (like a raw SSE event or tool name) directly — see
   `client.md` for what that shared shape contains.
+
+  [REVIEW: T05 retains the final stale-session policy for push-only adapters
+  (`client.md` R1.7) and the authenticated Claude lifecycle evidence
+  (`claude.md` R17). Until T04 wires the Unix listener, Claude monitoring is
+  opt-in library capability only — never active at dashboard startup.]
 
 - **R2** — The dashboard follows standard terminal-app engineering practice:
   it takes over the full terminal screen while running and always restores

@@ -158,3 +158,7 @@ Reversal: return to Decomposition if the typed channel or decoder requires chang
 ## 2026-09-03 - T03 decomposition sign-off
 
 Terra reviewed the T03 design, implementation plan, and contract and signed off Candidate B. T03 is released for one DeepSeek implementation pass and one fresh Luna verification. Its boundary is adapter registration, typed wire decoding, pure Claude state transitions, feature tests, and directly affected documentation; T04 owns listener/startup and T05 owns authenticated E2E and final staleness policy.
+
+## 2026-09-03 - T03 gate closure
+
+T03 is clean after one bounded DeepSeek implementation pass and one fresh Luna verification. The gate covers the typed v1 decoder, three observed lifecycle mappings, provider-neutral snapshots/tombstone, project identity fallback, real socket-to-adapter feature path, and the T04/T05 boundaries. The first Luna request failed before review with HTTP 404 and is not counted. Commit T03 with its implementation, tests, directly affected docs, and gate report; keep T04 blocked until the commit is verified.

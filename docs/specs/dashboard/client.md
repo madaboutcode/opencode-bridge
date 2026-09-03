@@ -7,10 +7,11 @@ layout, rendering) and whatever is watching a coding-agent tool ("harness")
 on the core's behalf. `overview.md` R1.3 only establishes that this boundary
 exists; this file is the full contract — what an adapter must produce, how
 sessions and projects are identified, how staleness is handled, and (for the
-one adapter that ships in V1) exactly how the opencode adapter meets that
-contract. An implementer building the `HarnessAdapter` boundary and the
-opencode adapter should be able to work from this file without returning to
-the requirements doc. This file does not repeat the exact rendered content
+adapters that ship) exactly how the opencode adapter meets that contract and
+how the opt-in, experimental Claude hook adapter meets the same boundary.
+An implementer building the `HarnessAdapter` boundary and either adapter
+should be able to work from this file without returning to the requirements
+doc. This file does not repeat the exact rendered content
 of a session snapshot (status vocabulary, tile text, nickname rules) — those
 live in `visuals.md` and `layout.md`, per this spec tree's file split
 (`docs/specs/CLAUDE.md`'s File organization table); this file owns the
@@ -27,6 +28,7 @@ R1.4–R1.8, R4, R6.4–R6.6.
 - [Project identity](#project-identity) — R1.6
 - [Staleness](#staleness) — R1.7
 - [Harness-tag slot](#harness-tag-slot) — R1.8
+- [The Claude hook adapter (opt-in, experimental)](#the-claude-hook-adapter-opt-in-experimental)
 - [The opencode adapter's own mechanism](#the-opencode-adapters-own-mechanism) — R4
 - [Tool-call correlation (opencode adapter internals)](#tool-call-correlation-opencode-adapter-internals) — R6.4
 - [Action-line rendering (opencode adapter internals)](#action-line-rendering-opencode-adapter-internals) — R6.5-R6.6
@@ -40,8 +42,9 @@ for the full five-file map.
 Covered: the `HarnessAdapter` boundary contract (R1.3 full), the session
 snapshot delivery model (R1.4), session identity (R1.5), project identity
 (R1.6), staleness (R1.7), the harness-tag slot (R1.8), and — specific to the
-one adapter that ships in V1 — the opencode adapter's REST/SSE mechanics
-(R4) and its tool-call-to-action-line rendering (R6.4-R6.6).
+adapters that ship — the opencode adapter's REST/SSE mechanics (R4) and its
+tool-call-to-action-line rendering (R6.4-R6.6), plus the opt-in, experimental
+Claude hook adapter's lifecycle mapping (see [`claude.md`](claude.md)).
 
 Not covered: the exact rendered content of a session snapshot (status
 vocabulary, tile text, nickname rules) — those live in `visuals.md` and
@@ -74,10 +77,13 @@ final on-screen form.
   name/args pair. This is what stops a second harness's own tool vocabulary
   from leaking into the shared model through the back door.
 
-  V1 builds exactly one adapter (opencode, meeting R4/R6.4/R6.5 below),
-  registered against this boundary. Nothing else is implemented — but the
-  core's data model must not assume SSE, a REST reconcile sweep, or any
-  other opencode-specific mechanism exists anywhere in its shape.
+  V1 builds the opencode adapter (meeting R4/R6.4/R6.5 below) against this
+  boundary, plus an opt-in Claude hook adapter (`claude.md` R11-R17, mapped
+  in this file) that is experimental until its listener wiring lands (T04) —
+  see ["The Claude hook adapter"](#the-claude-hook-adapter-opt-in-experimental)
+  below. Nothing else is implemented; the core's data model must not assume
+  SSE, a REST reconcile sweep, a hook-based listener, or any other
+  harness-specific mechanism exists anywhere in its shape.
 
   Scenario: Given a tool call arrives on the opencode adapter's SSE stream
   carrying a raw tool name and a JSON arguments object, when the adapter
@@ -223,15 +229,19 @@ final on-screen form.
   one that has gone quiet past a threshold as stale rather than assuming it
   is still accurate forever. The opencode adapter gets a free safety net
   from its own 60-second REST reconcile sweep (R4) — a dropped SSE
-  connection self-corrects on the next sweep regardless of this rule. A
-  future hook-push-only adapter has no REST to reconcile against, so this
-  rule is what keeps its sessions from freezing on a missed message forever.
+  connection self-corrects on the next sweep regardless of this rule. The
+  opt-in Claude hook adapter is push-only: it has no REST to reconcile
+  against, so this rule is what keeps its sessions from freezing on a
+  missed message forever. The core's active-window reclassification (R3)
+  currently treats long-quiet Claude sessions as idle; the adapter itself
+  records receipt timestamps and removes nothing.
 
   [REVIEW: OPEN, see requirements doc — the exact staleness threshold and
   its on-screen treatment (dimmed? a distinct status? dropped from view
-  entirely?) are not decided. Not urgent for V1 since the opencode adapter's
-  reconcile sweep already covers it in practice; this becomes load-bearing
-  only once a push-only adapter exists.]
+  entirely?) are not decided. T05 owns the final policy and its evidence.
+  Not urgent for V1 since the opencode adapter's reconcile sweep already
+  covers it in practice; this becomes load-bearing once the opt-in Claude
+  adapter is enabled.]
 
   Cross-reference: `visuals.md` R6.8's naming-claim scheme depends on
   whatever this rule eventually decides — both claim layers there (project→
@@ -250,27 +260,76 @@ final on-screen form.
 - **R1.8** — When sessions from more than one harness kind are present at
   the same time, each tile reserves a small slot identifying which harness
   that session came from. The slot must exist in the tile layout so this
-  isn't a retrofit later, even though only one harness kind (opencode)
-  exists in V1. The slot is hidden/absent whenever only one harness kind is
-  present in the current data — which is every V1 render, since only the
-  opencode adapter exists.
+  isn't a retrofit later. The slot is hidden/absent whenever only one
+  harness kind is present in the current data — the default render, since
+  the Claude adapter is opt-in and off until its listener is wired (T04).
 
   [REVIEW: OPEN — the exact glyph and its placement within the tile are not
   decided; that's a `visuals.md`/`layout.md` tile-content-ladder detail to
-  design once a second adapter actually exists to design against.]
+  design once a second adapter actually renders live data.]
 
-  Scenario: Given only the opencode adapter is active, as in every V1 build,
-  when the dashboard renders any tile, then no harness-tag glyph is shown;
-  given a future build has two harness kinds live at the same time, when the
-  dashboard renders a tile, then a small reserved slot identifies which
-  harness that session came from — exact glyph and placement `[REVIEW: OPEN]`.
+  Scenario: Given only the opencode adapter is active — the default, since
+  Claude monitoring requires the user to configure hooks — when the
+  dashboard renders any tile, then no harness-tag glyph is shown; given a
+  build with Claude hooks configured and both harness kinds live at the
+  same time, when the dashboard renders a tile, then a small reserved slot
+  identifies which harness that session came from — exact glyph and
+  placement `[REVIEW: OPEN]`.
+
+## The Claude hook adapter (opt-in, experimental)
+
+Claude monitoring is a second, opt-in harness in this spec tree
+(`claude.md` R11-R17). Its adapter is implemented on exactly this
+`HarnessAdapter` boundary, but it is **experimental until T04 wires the
+Unix listener into dashboard startup**: the library exposes `ClaudeAdapter`
+and its typed envelope channel, but no runtime listens yet, so Claude
+sessions do not appear in any default dashboard render. Nothing at startup
+reads or writes Claude configuration — the hooks the user adds are the sole
+switch (R11-R12).
+
+The adapter maps exactly the three T01c-observed hook events (`claude.md`
+R13) onto the shared event stream:
+
+- `SessionStart` and `StopFailure` each emit one complete
+  `NeedsYou { question: false }` snapshot. `StopFailure` never carries error
+  details, a first `StopFailure` admits the session with its receipt time as
+  `created_at`, and duplicate starts preserve the creation time.
+- `SessionEnd` removes the session and emits a `Gone` tombstone — the same
+  whole-state upsert / tombstone contract R1.4 defines, exactly as the
+  opencode adapter uses it.
+
+Snapshots carry identity (`HarnessKind("claude")` + harness-native id, R1.5),
+canonical project identity resolved through the same `ProjectIdentityCache`
+as the opencode adapter (R1.6, including the same documented degraded
+uncanonicalized fallback when a cwd cannot be resolved), and `created_at` /
+`last_updated` / the `NeedsYou` basis from local hook receipt times
+(`claude.md` R14 — the only timestamp that crosses the boundary). Every
+content field T01c does not verify (`parent_id`, `current_action`,
+`wire_title`, prompt/assistant text, `files_touched`, `recent_actions`) is
+`None`/empty. The adapter records receipt timestamps but implements no
+expiry or removal of its own: R3's active/idle window reclassification,
+computed by the core from `last_updated`, is the provisional treatment.
+
+[REVIEW: T05 owns the final stale-session policy (the R1.7 threshold and
+its on-screen treatment) and the authenticated lifecycle evidence
+(successful-turn behavior, subagent identity, async-hook viability,
+exit-path reliability — `claude.md` R17). Until T04 wires startup and T05
+closes, this adapter makes no completeness claim: it shows only sessions
+whose hook events were delivered while the adapter ran, and it cannot
+verify authenticated Claude behavior.]
+
+Scenario: Given the opt-in Claude hooks are configured and a `SessionEnd`
+envelope arrives for a session the adapter has seen, when the adapter
+processes the envelope, then it removes that session and emits one `Gone` —
+the same tombstone contract the opencode adapter uses for a session that
+vanished from its server.
 
 ## The opencode adapter's own mechanism
 
 **This section is opencode-adapter-specific, not a core requirement — see
-R1.3's boundary above.** It describes how the one adapter that ships in V1
-meets the `HarnessAdapter` contract; nothing here constrains how any future
-adapter would meet the same contract.
+R1.3's boundary above.** It describes how the opencode adapter meets the
+`HarnessAdapter` contract; nothing here constrains how any other adapter
+(including the Claude hook adapter above) would meet the same contract.
 
 - **R4** — The opencode adapter fetches all sessions via `GET /api/session`
   (paginated) and per-session details on zoom, then keeps them live via
