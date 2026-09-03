@@ -14,12 +14,13 @@ spec in this tree builds on. Source: `tasks/2026-09-01-opencode-dashboard.requir
 - [Non-goals (V1)](#non-goals-v1) — R10
 
 Sibling spec files: [`client.md`](client.md), [`layout.md`](layout.md),
-[`visuals.md`](visuals.md), [`interactions.md`](interactions.md) — see the
-File map table below for what each one covers.
+[`visuals.md`](visuals.md), [`interactions.md`](interactions.md),
+[`claude.md`](claude.md) — see the File map table below for what each one
+covers.
 
 ## File map
 
-This spec tree covers the dashboard in five files. Start here; follow the
+This spec tree covers the dashboard in six files. Start here; follow the
 pointers below for detail this file doesn't carry.
 
 | File | Covers |
@@ -29,6 +30,7 @@ pointers below for detail this file doesn't carry.
 | `layout.md` | R5-R5.11, R9-R9.2 |
 | `visuals.md` | R6, R6.1-R6.3, R6.7, R6.8 |
 | `interactions.md` | R7-R7.1, R8-R8.1 |
+| `claude.md` | R11-R17 (the opt-in Claude-monitoring capability: hook ingress, privacy boundary, local socket) |
 
 ## Scope
 

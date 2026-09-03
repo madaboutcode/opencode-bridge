@@ -36,7 +36,7 @@ the implementation, not here.
 
 ## File organization
 
-Five spec files under `docs/specs/dashboard/`, no more:
+Six spec files under `docs/specs/dashboard/`:
 
 | File | Covers |
 |---|---|
@@ -45,6 +45,7 @@ Five spec files under `docs/specs/dashboard/`, no more:
 | `layout.md` | R5-R5.11, R9-R9.2 |
 | `visuals.md` | R6, R6.1-R6.3, R6.7, R6.8 |
 | `interactions.md` | R7-R7.1, R8-R8.1 |
+| `claude.md` | R11-R17 (the opt-in Claude-monitoring capability: hook ingress, privacy boundary, local socket) |
 
 No `docs/specs/glossary.md` and no `docs/specs/interfaces/` — the
 `writing-specs` skill treats both as fixed locations, but they exist to serve

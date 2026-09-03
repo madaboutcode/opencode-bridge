@@ -20,6 +20,10 @@ directory first — it defines the format and the skill gate.
   naming scheme.
 - **`dashboard/interactions.md`** — keyboard navigation, zoom, and the
   active-window controls.
+- **`dashboard/claude.md`** — the opt-in Claude-monitoring capability: hook
+  ingress, the three-event allowlist, the metadata-only privacy boundary,
+  the bounded versioned local socket + envelope, and best-effort degraded
+  delivery.
 
 ## File map (which R-numbers live where)
 
@@ -30,6 +34,7 @@ directory first — it defines the format and the skill gate.
 | `layout.md` | R5-R5.11, R9-R9.2 |
 | `visuals.md` | R6, R6.1-R6.3, R6.7, R6.8 |
 | `interactions.md` | R7-R7.1, R8-R8.1 |
+| `claude.md` | R11-R17 (the opt-in Claude-monitoring capability: hook ingress, privacy boundary, local socket) |
 
 No `glossary.md`, no `interfaces/` — see `CLAUDE.md`'s "File organization"
 section for why.
