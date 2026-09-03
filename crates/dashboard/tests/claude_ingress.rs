@@ -27,7 +27,8 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::time::timeout;
 
 use claude_hook::{
-    parse_hook_input, ClaudeHookRecord, DeliveryOutcome, DropReason, ParseOutcome, ReceivedAt,
+    parse_hook_input, ClaudeEvent, ClaudeHookRecord, DeliveryOutcome, DropReason, ParseOutcome,
+    ReceivedAt,
 };
 
 const RECEIVED: ReceivedAt = ReceivedAt(1_700_000_000_000);
@@ -473,7 +474,7 @@ async fn maximum_bounded_record_fits_the_envelope_and_is_delivered() {
         &[],
     ));
 
-    let wire = claude_hook::serialize_envelope(&record);
+    let wire = claude_hook::serialize_envelope(&record).expect("maximum ASCII envelope must fit");
     assert!(
         wire.len() <= claude_hook::MAX_ENVELOPE_BYTES,
         "wire {} bytes exceeds bound {}",
@@ -491,6 +492,27 @@ async fn maximum_bounded_record_fits_the_envelope_and_is_delivered() {
     let value: Value = serde_json::from_str(&frames[0]).expect("frame is not a JSON envelope");
     assert_eq!(value["record"]["session_id"].as_str().unwrap(), max_id);
     assert_eq!(value["record"]["cwd"].as_str().unwrap(), max_cwd);
+}
+
+#[tokio::test]
+async fn escaped_envelope_overflow_drops_before_any_ipc() {
+    let socket = TempSocket::new("escaped-overflow");
+    let listener = bind_listener(&socket);
+    let record = ClaudeHookRecord {
+        session_id: "s".to_owned(),
+        cwd: "\"".repeat(claude_hook::MAX_CWD_LEN),
+        event: ClaudeEvent::SessionStart { source: None },
+        received_at: RECEIVED,
+    };
+
+    let outcome = claude_hook::deliver_to(&record, socket.path()).await;
+    assert_eq!(outcome, DeliveryOutcome::EnvelopeTooLarge);
+
+    let frames = collect_frames(listener, 1, Duration::from_millis(300)).await;
+    assert!(
+        frames.is_empty(),
+        "oversized escaped envelope must not reach the socket: {frames:?}"
+    );
 }
 
 #[tokio::test]
@@ -514,7 +536,7 @@ async fn sensitive_fields_never_cross_the_ipc_boundary() {
         ],
     );
     let start_record = parsed(&start_payload);
-    let start_wire = claude_hook::serialize_envelope(&start_record);
+    let start_wire = claude_hook::serialize_envelope(&start_record).expect("start envelope fits");
     for sentinel in [
         "SENTINEL_TRANSCRIPT",
         "SENTINEL_AGENT_TRANSCRIPT",
@@ -548,7 +570,7 @@ async fn sensitive_fields_never_cross_the_ipc_boundary() {
 
     // StopFailure carrying error details and assistant text.
     let fail_record = parsed(&stop_failure_payload("sess-fail", "/work/fail"));
-    let fail_wire = claude_hook::serialize_envelope(&fail_record);
+    let fail_wire = claude_hook::serialize_envelope(&fail_record).expect("failure envelope fits");
     for sentinel in ["SENTINEL_ERROR", "SENTINEL_ASSISTANT"] {
         assert!(
             !fail_wire.contains(sentinel),
@@ -558,7 +580,7 @@ async fn sensitive_fields_never_cross_the_ipc_boundary() {
 
     // SessionEnd carrying a transcript path.
     let end_record = parsed(&session_end_payload("sess-end", "/work/end", "other"));
-    let end_wire = claude_hook::serialize_envelope(&end_record);
+    let end_wire = claude_hook::serialize_envelope(&end_record).expect("end envelope fits");
     assert!(
         !end_wire.contains("SENTINEL") && !end_wire.contains("transcript"),
         "transcript data leaked into the envelope: {end_wire}"

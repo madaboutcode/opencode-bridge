@@ -65,9 +65,10 @@ pub enum DecodeError {
     UnknownVersion,
     /// The event `kind` is not one of T02's allowlisted three.
     UnknownEvent,
-    /// A value violates a hard bound: an empty/oversized session id or cwd, a
-    /// line longer than `MAX_ENVELOPE_BYTES` or containing more than one
-    /// newline, or a `received_at` outside the shared `Timestamp` range.
+    /// A value violates a hard bound: an empty session id or cwd, an
+    /// oversized UTF-8 byte value, a line longer than `MAX_ENVELOPE_BYTES` or
+    /// containing more than one newline, or a `received_at` outside the shared
+    /// `Timestamp` range.
     OutOfBounds,
 }
 
@@ -99,7 +100,7 @@ impl std::fmt::Display for DecodeError {
 pub fn decode_envelope(line: &str) -> Result<ClaudeIpcEnvelope, DecodeError> {
     // Hard frame bound first: a line over the serialized-envelope cap is
     // rejected before any parsing, matching T02's own MAX_ENVELOPE_BYTES
-    // serializer assertion (which includes the trailing newline).
+    // serializer bound (which includes the trailing newline).
     if line.len() > MAX_ENVELOPE_BYTES {
         return Err(DecodeError::OutOfBounds);
     }
@@ -227,7 +228,7 @@ mod tests {
                 None => String::new(),
             }
         );
-        serialize_envelope(&accepted(&json))
+        serialize_envelope(&accepted(&json)).expect("ordinary envelope must fit")
     }
 
     fn assert_rejected(line: &str, expected: DecodeError) {
@@ -282,7 +283,7 @@ mod tests {
                 ClaudeEvent::SessionEnd { reason: None },
             ),
         ] {
-            let line = serialize_envelope(&accepted(input));
+            let line = serialize_envelope(&accepted(input)).expect("ordinary envelope must fit");
             let decoded = decode_envelope(&line).expect("decode");
             assert_eq!(decoded.record.event, expected, "input {input}");
         }
@@ -387,6 +388,31 @@ mod tests {
                 DecodeError::OutOfBounds,
             );
         }
+
+        let bounded_id = "é".repeat(MAX_SESSION_ID_LEN / 2);
+        let bounded_id_line = format!(
+            "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"{bounded_id}\",\"cwd\":\"/w\",\"event\":{{\"kind\":\"session_start\"}},\"received_at\":1}}}}"
+        );
+        assert!(decode_envelope(&bounded_id_line).is_ok());
+
+        let oversized_id = "é".repeat(MAX_SESSION_ID_LEN / 2 + 1);
+        let oversized_id_line = format!(
+            "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"{oversized_id}\",\"cwd\":\"/w\",\"event\":{{\"kind\":\"session_start\"}},\"received_at\":1}}}}"
+        );
+        assert_rejected(&oversized_id_line, DecodeError::OutOfBounds);
+
+        let bounded_cwd = "é".repeat(MAX_CWD_LEN / 2);
+        let bounded_cwd_line = format!(
+            "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"s\",\"cwd\":\"{bounded_cwd}\",\"event\":{{\"kind\":\"session_start\"}},\"received_at\":1}}}}"
+        );
+        assert!(decode_envelope(&bounded_cwd_line).is_ok());
+
+        let oversized_cwd = "é".repeat(MAX_CWD_LEN / 2 + 1);
+        let oversized_cwd_line = format!(
+            "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"s\",\"cwd\":\"{oversized_cwd}\",\"event\":{{\"kind\":\"session_start\"}},\"received_at\":1}}}}"
+        );
+        assert_rejected(&oversized_cwd_line, DecodeError::OutOfBounds);
+
         // received_at beyond the shared i64 Timestamp range.
         assert_rejected(
             "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"received_at\":18446744073709551615}}",
@@ -409,7 +435,7 @@ mod tests {
             "i".repeat(MAX_SESSION_ID_LEN),
             "/".repeat(MAX_CWD_LEN),
         ));
-        let line = serialize_envelope(&max);
+        let line = serialize_envelope(&max).expect("maximum ASCII envelope must fit");
         assert!(line.len() <= MAX_ENVELOPE_BYTES);
         assert!(decode_envelope(&line).is_ok());
     }

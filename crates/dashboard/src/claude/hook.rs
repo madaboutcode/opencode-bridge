@@ -76,17 +76,17 @@ pub const ENVELOPE_PROTOCOL_VERSION: u32 = 1;
 /// bloated or hostile payload can never make us work on it.
 pub const MAX_HOOK_INPUT_BYTES: usize = 64 * 1024;
 
-/// Maximum size of a serialized envelope (bytes). Unreachable given the
-/// value bounds below (128 + 4096 + short labels + JSON overhead), asserted
-/// as an internal invariant at serialization time.
+/// Maximum size of a serialized envelope (UTF-8 bytes, including its newline).
+/// Field bounds are checked before serialization, but JSON escaping can make
+/// a field-bounded record exceed this separate wire bound.
 pub const MAX_ENVELOPE_BYTES: usize = 8 * 1024;
 
-/// Maximum length of a session id (`claude.md` R15). Observed ids are UUIDs
-/// (36 chars); the bound is deliberately looser so a future Claude id
+/// Maximum UTF-8 byte length of a session id (`claude.md` R15). Observed ids
+/// are UUIDs (36 characters); the bound is deliberately looser so a future Claude id
 /// format does not break ingress, but it is still hard.
 pub const MAX_SESSION_ID_LEN: usize = 128;
 
-/// Maximum length of a working-directory path (`claude.md` R15).
+/// Maximum UTF-8 byte length of a working-directory path (`claude.md` R15).
 pub const MAX_CWD_LEN: usize = 4096;
 
 /// Best-effort delivery: the single deadline for one entire hook delivery
@@ -244,24 +244,30 @@ impl ClaudeIpcEnvelope {
         }
     }
 
-    /// The wire form: one JSON object plus a trailing newline.
-    pub fn to_wire(&self) -> String {
+    /// The wire form: one JSON object plus a trailing newline, when it fits
+    /// the complete serialized-envelope bound.
+    pub fn to_wire(&self) -> Result<String, EnvelopeSerializeError> {
         let mut out = serde_json::to_string(&envelope_to_value(self))
             .expect("envelope serialization cannot fail: all fields are plain JSON values");
         out.push('\n');
-        assert!(
-            out.len() <= MAX_ENVELOPE_BYTES,
-            "envelope exceeded its size bound: {} > {}",
-            out.len(),
-            MAX_ENVELOPE_BYTES
-        );
-        out
+        if out.len() > MAX_ENVELOPE_BYTES {
+            return Err(EnvelopeSerializeError::Oversized);
+        }
+        Ok(out)
     }
+}
+
+/// Why a typed envelope could not be serialized for delivery. The error is
+/// category-only so no rejected value can cross the hook boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EnvelopeSerializeError {
+    /// The complete escaped JSON frame, including its newline, exceeds R15.
+    Oversized,
 }
 
 /// Serialize one record as its full envelope wire frame (JSON + newline).
 /// Convenience for callers and tests that need the wire form directly.
-pub fn serialize_envelope(record: &ClaudeHookRecord) -> String {
+pub fn serialize_envelope(record: &ClaudeHookRecord) -> Result<String, EnvelopeSerializeError> {
     ClaudeIpcEnvelope::new(record.clone()).to_wire()
 }
 
@@ -275,12 +281,14 @@ pub enum DropReason {
     OversizedInput,
     /// A hook event name that is not in the observed allowlist.
     UnknownEvent,
-    /// Empty, whitespace-only, or longer than `MAX_SESSION_ID_LEN`.
+    /// Empty, whitespace-only, or longer than `MAX_SESSION_ID_LEN` UTF-8 bytes.
     InvalidSessionId,
-    /// Empty, whitespace-only, or longer than `MAX_CWD_LEN`.
+    /// Empty, whitespace-only, or longer than `MAX_CWD_LEN` UTF-8 bytes.
     InvalidCwd,
     /// An allowlisted metadata field carried an unverified value/type.
     InvalidMetadata,
+    /// The complete escaped envelope exceeds `MAX_ENVELOPE_BYTES`.
+    OversizedEnvelope,
 }
 
 impl DropReason {
@@ -292,6 +300,7 @@ impl DropReason {
             Self::InvalidSessionId => "invalid session id",
             Self::InvalidCwd => "invalid cwd",
             Self::InvalidMetadata => "invalid metadata",
+            Self::OversizedEnvelope => "oversized envelope",
         }
     }
 }
@@ -354,12 +363,17 @@ pub fn parse_hook_input(input: &str, received_at: ReceivedAt) -> ParseOutcome {
         None => return dropped(DropReason::MalformedInput),
     };
 
-    ParseOutcome::Accepted(ClaudeHookRecord {
+    let record = ClaudeHookRecord {
         session_id,
         cwd,
         event,
         received_at,
-    })
+    };
+
+    match serialize_envelope(&record) {
+        Ok(_) => ParseOutcome::Accepted(record),
+        Err(EnvelopeSerializeError::Oversized) => dropped(DropReason::OversizedEnvelope),
+    }
 }
 
 fn parse_session_start(raw: &Value) -> Result<ClaudeEvent, DropReason> {
@@ -416,6 +430,9 @@ pub enum DeliveryOutcome {
     /// refused instantly — both are the same consumer-visible case: the
     /// listener is not reachable right now.
     ListenerUnavailable,
+    /// The complete escaped envelope exceeds the wire bound before any socket
+    /// metadata, connection, or write is attempted.
+    EnvelopeTooLarge,
 }
 
 impl DeliveryOutcome {
@@ -424,6 +441,7 @@ impl DeliveryOutcome {
             Self::Sent => "sent",
             Self::ListenerAbsent => "listener absent",
             Self::ListenerUnavailable => "listener unavailable",
+            Self::EnvelopeTooLarge => "envelope too large",
         }
     }
 }
@@ -466,7 +484,10 @@ async fn deliver_before(
     deadline: tokio::time::Instant,
 ) -> DeliveryOutcome {
     let attempt = async {
-        let wire = serialize_envelope(record);
+        let wire = match serialize_envelope(record) {
+            Ok(wire) => wire,
+            Err(EnvelopeSerializeError::Oversized) => return DeliveryOutcome::EnvelopeTooLarge,
+        };
         match tokio::fs::symlink_metadata(socket_path).await {
             Ok(metadata) if metadata.file_type().is_socket() => {
                 match UnixStream::connect(socket_path).await {
@@ -885,6 +906,67 @@ mod tests {
     }
 
     #[test]
+    fn identity_bounds_are_measured_in_utf8_bytes() {
+        let bounded = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "é".repeat(MAX_SESSION_ID_LEN / 2),
+            "cwd": "é".repeat(MAX_CWD_LEN / 2),
+        })
+        .to_string();
+        assert!(matches!(
+            parse_hook_input(&bounded, RECEIVED),
+            ParseOutcome::Accepted(_)
+        ));
+
+        let oversized_id = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "é".repeat(MAX_SESSION_ID_LEN / 2 + 1),
+            "cwd": "/w",
+        })
+        .to_string();
+        assert_eq!(
+            parse_hook_input(&oversized_id, RECEIVED),
+            ParseOutcome::Dropped(DropReason::InvalidSessionId)
+        );
+
+        let oversized_cwd = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "s",
+            "cwd": "é".repeat(MAX_CWD_LEN / 2 + 1),
+        })
+        .to_string();
+        assert_eq!(
+            parse_hook_input(&oversized_cwd, RECEIVED),
+            ParseOutcome::Dropped(DropReason::InvalidCwd)
+        );
+    }
+
+    #[test]
+    fn escaped_envelope_overflow_is_dropped_without_serialization_panic() {
+        let payload = serde_json::json!({
+            "hook_event_name": "SessionStart",
+            "session_id": "s",
+            "cwd": "\"".repeat(MAX_CWD_LEN),
+        })
+        .to_string();
+        assert_eq!(
+            parse_hook_input(&payload, RECEIVED),
+            ParseOutcome::Dropped(DropReason::OversizedEnvelope)
+        );
+
+        let record = ClaudeHookRecord {
+            session_id: "s".to_owned(),
+            cwd: "\"".repeat(MAX_CWD_LEN),
+            event: ClaudeEvent::SessionStart { source: None },
+            received_at: RECEIVED,
+        };
+        assert_eq!(
+            serialize_envelope(&record),
+            Err(EnvelopeSerializeError::Oversized)
+        );
+    }
+
+    #[test]
     fn wrong_field_types_are_malformed_or_invalid() {
         // session_id as a number
         let num_id = "{\"hook_event_name\":\"SessionStart\",\"session_id\":123,\"cwd\":\"/w\"}";
@@ -903,7 +985,7 @@ mod tests {
     #[test]
     fn envelope_is_versioned_newline_delimited_and_bounded() {
         let record = accepted(parse_hook_input(&session_start(Some("startup")), RECEIVED));
-        let wire = serialize_envelope(&record);
+        let wire = serialize_envelope(&record).expect("ordinary envelope must fit the bound");
         assert!(
             wire.ends_with('\n'),
             "envelope not newline-delimited: {wire:?}"
@@ -942,7 +1024,7 @@ mod tests {
             "{\"hook_event_name\":\"StopFailure\",\"session_id\":\"s\",\"cwd\":\"/w\",\"error\":\"SENTINEL_ERROR\"}",
             RECEIVED,
         ));
-        let failed_wire = serialize_envelope(&failed);
+        let failed_wire = serialize_envelope(&failed).expect("ordinary envelope must fit");
         assert!(!failed_wire.contains("SENTINEL_ERROR"));
         let failed_value: Value = serde_json::from_str(failed_wire.trim_end()).unwrap();
         assert_eq!(
@@ -951,7 +1033,7 @@ mod tests {
         );
 
         let ended = accepted(parse_hook_input(&session_end(Some("other")), RECEIVED));
-        let ended_wire = serialize_envelope(&ended);
+        let ended_wire = serialize_envelope(&ended).expect("ordinary envelope must fit");
         let ended_value: Value = serde_json::from_str(ended_wire.trim_end()).unwrap();
         assert_eq!(
             ended_value["record"]["event"],

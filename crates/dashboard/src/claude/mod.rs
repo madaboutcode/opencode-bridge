@@ -67,9 +67,9 @@ pub(crate) const KIND: HarnessKind = HarnessKind("claude");
 /// T02 `hook` module (`docs/specs/dashboard/claude.md` R13-R16).
 pub use hook::{
     deliver, deliver_to, parse_hook_input, serialize_envelope, ClaudeEvent, ClaudeHookRecord,
-    ClaudeIpcEnvelope, DeliveryOutcome, DropReason, ParseOutcome, ReceivedAt, SessionEndReason,
-    SessionStartSource, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
-    MAX_HOOK_INPUT_BYTES, MAX_SESSION_ID_LEN,
+    ClaudeIpcEnvelope, DeliveryOutcome, DropReason, EnvelopeSerializeError, ParseOutcome,
+    ReceivedAt, SessionEndReason, SessionStartSource, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN,
+    MAX_ENVELOPE_BYTES, MAX_HOOK_INPUT_BYTES, MAX_SESSION_ID_LEN,
 };
 
 /// The public T03 wire decoder T04 calls after reading one socket line.

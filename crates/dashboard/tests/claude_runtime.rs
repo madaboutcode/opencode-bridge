@@ -35,8 +35,8 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use dashboard::adapter::SessionEvent;
 use dashboard::claude::hook::{
     deliver_to, parse_hook_input, serialize_envelope, ClaudeHookRecord, ClaudeIpcEnvelope,
-    DeliveryOutcome, ParseOutcome, ReceivedAt, MAX_ENVELOPE_BYTES, MAX_HOOK_INPUT_BYTES,
-    MAX_SESSION_ID_LEN,
+    DeliveryOutcome, ParseOutcome, ReceivedAt, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
+    MAX_HOOK_INPUT_BYTES, MAX_SESSION_ID_LEN,
 };
 use dashboard::claude::listener::{ClaudeListener, ListenerError, MAX_CONCURRENT_CONNECTIONS};
 use dashboard::claude::wire::decode_envelope;
@@ -120,6 +120,7 @@ fn valid_line(session_id: &str, cwd: &str) -> String {
         })
         .to_string(),
     ))
+    .expect("ordinary envelope must fit")
 }
 
 /// A T02-serialized valid envelope whose wire length is exactly `target`
@@ -341,6 +342,41 @@ async fn feature_hook_subprocess_writes_one_envelope_decoded_into_adapter_event(
     adapter_handle
         .await
         .expect("adapter must end cleanly after input closes");
+}
+
+#[tokio::test]
+async fn feature_hook_subprocess_drops_escaped_envelope_overflow() {
+    let socket = TempSocket::new("escaped");
+    let listener = UnixListener::bind(socket.path()).expect("bind test listener");
+    let payload = serde_json::json!({
+        "hook_event_name": "SessionStart",
+        "session_id": "sess-escaped-overflow",
+        "cwd": "\"".repeat(MAX_CWD_LEN),
+    })
+    .to_string();
+
+    let output = run_hook(payload.as_bytes(), socket.path());
+    assert!(output.status.success(), "oversized envelope must exit 0");
+    assert!(output.stdout.is_empty(), "hook must never write stdout");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("dropped (oversized envelope)"),
+        "expected category-only overflow drop, got: {stderr}"
+    );
+    assert!(
+        !stderr.contains("panicked"),
+        "overflow must not panic: {stderr}"
+    );
+    assert!(
+        !stderr.contains("SENTINEL") && !stderr.contains("transcript"),
+        "payload values must not appear in stderr: {stderr}"
+    );
+    assert!(
+        tokio::time::timeout(Duration::from_millis(300), listener.accept())
+            .await
+            .is_err(),
+        "oversized envelope must not reach the socket"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -154,8 +154,8 @@ deferred to T05 (see R17).
   Unix socket scoped to the same user — an explicit per-user path, or a
   per-user location such as the user's runtime directory or home — never a
   shared, system-wide fallback. The limits are hard: a hook payload larger
-  than 64 KiB is dropped whole; a session id longer than 128 characters, or
-  a working directory longer than 4096 characters, drops the whole event;
+  than 64 KiB is dropped whole; a session id longer than 128 UTF-8 bytes, or
+  a working directory longer than 4096 UTF-8 bytes, drops the whole event;
   and a serialized envelope is at most 8 KiB. Nothing partial is sent and
   nothing is truncated to fit — exceeding any bound means the event is
   dropped.

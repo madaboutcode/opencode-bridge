@@ -268,13 +268,12 @@ impl ClaudeListener {
 
 impl Drop for ClaudeListener {
     fn drop(&mut self) {
-        // Remove only while the path still names the exact socket we bound:
-        // same device/inode identity and still a socket (`symlink_metadata`
-        // never follows a symlink). A replacement regular file, symlink, or
-        // different socket is never deleted; a missing path has nothing to
-        // remove. Leftover paths are harmless anyway — T02 delivery and the
-        // next bind both handle a stale socket.
-        // FALLBACK-OK: design "Bounds And Errors" — cleanup failure is
+        // Remove only after the path check still names the exact socket we
+        // bound: same device/inode identity and still a socket
+        // (`symlink_metadata` never follows a symlink). This protects the
+        // deterministic replacement cases; the path check and remove cannot
+        // be atomic through this API, so a narrow replacement race remains.
+        // FALLBACK-OK: T04 design "Bounds And Shutdown" — cleanup failure is
         // explicitly category-only, never an error the dashboard propagates.
         if let Some(identity) = self.identity {
             if is_same_socket(&self.path, identity) && fs::remove_file(&self.path).is_err() {
