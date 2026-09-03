@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; T01c final M1 re-cut is sealed and ready for execution.
+Scoping signed off by Terra on 2026-09-03; T01c is committed and T02 is sealed for execution.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries

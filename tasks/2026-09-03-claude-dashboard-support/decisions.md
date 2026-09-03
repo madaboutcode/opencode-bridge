@@ -98,3 +98,11 @@ Chosen: T01b fails because its v2 boundary could not prove unchanged adoption of
 Why: Terra ruled the `2.1.259` version metadata permitted, `[]` raw serialization must be normalized, and untracked adoption cannot prove “unchanged.” A manifest establishes durable current provenance without pretending to reconstruct failed-T01 history.
 Limitations: T01 remains failed and uncommitted; T01c is the final M1 re-cut gate and uses one conductor correction plus one fresh Luna verification. Authenticated behavior and full E2E remain T05 scope.
 Reversal: if T01c's manifest, normalization, or four deferrals fail review, stop and re-cut M1 again rather than starting T02.
+
+## 2026-09-03 - T02 dependency refresh
+
+Considered: spawn T02 using its stale T01 dependency or reseal the contract against the T01c adoption gate.
+Chosen: T02 is version 2 and depends on committed T01c; it consumes the current hash-verified evidence baseline and four deferrals, while failed T01/T01b artifacts are historical records only.
+Why: T01c is the actual durable M1 prerequisite. A stale contract dependency would let T02 consume an uncommitted failed-task state and violate the shared-contract correctness rule.
+Limitations: T02's ingress implementation remains independent of adapter/runtime work; T05 still owns authenticated integrated evidence.
+Reversal: return to Decomposition if T01c's gate or evidence baseline changes materially.

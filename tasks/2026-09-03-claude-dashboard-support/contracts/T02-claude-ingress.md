@@ -1,6 +1,6 @@
 # T02 - Local ingress and privacy contract
 
-**Contract version** - 1
+**Contract version** - 2
 
 **Context** - goal: implement and test the strict Claude hook parser and
   best-effort local Unix-socket ingress after T01's evidence decisions; who uses
@@ -54,14 +54,16 @@ or transcript files.
 
 **Gate** - report-only (refine-loop).
 
-**Dependencies** - T01.
+**Dependencies** - T01c; consumes the adopted current evidence baseline and
+  its four T05 deferrals. Failed T01/T01b artifacts are historical records, not
+  dependencies.
 
 ## Review Frame
 
-**As of** - contract version 1
+**As of** - contract version 2
 
-**Context** - High-criticality, independently testable ingress seam between T01 evidence and later integration.
+**Context** - High-criticality ingress contract consuming T01c's durable, deliberately limited evidence baseline.
 
-**Expectations** - Require an evidence-backed, bounded metadata-only seam consistent with T01 decisions. T05 retains complete Claude-to-dashboard validation.
+**Expectations** - Review metadata-only parsing and bounded real-socket behavior against that baseline and its deferrals. T05 alone proves authenticated hook-to-dashboard integration.
 
-**Depth** - Deep review of privacy and operational contract fidelity, with focused implementation review; exclude adapter and runtime behavior.
+**Depth** - Deep review of privacy and operational boundaries plus feature tests; exclude adapter/runtime design and unverified lifecycle expansion.
