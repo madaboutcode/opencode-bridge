@@ -130,3 +130,11 @@ Chosen: T02 v5 owns `docs/specs/README.md` and must register `dashboard/claude.m
 Why: the index is part of the documented spec-tree entry point and currently contradicts the sixth-file convention; leaving it stale would make the feature undiscoverable and the project documentation internally inconsistent.
 Limitations: T02 still creates only one new spec file and does not alter unrelated requirements or implementation files.
 Reversal: return to Decomposition if the index exposes another unrelated documentation conflict.
+
+## 2026-09-03 - T02 overview registry ownership
+
+Considered: leave the stale five-file registry in `docs/specs/dashboard/overview.md` outside T02, or include it in the spec-tree correction.
+Chosen: T02 v6 owns `overview.md` in addition to the convention and root index; its one bounded correction must register `claude.md` consistently in all three registries.
+Why: Terra ruled `overview.md` is a spec-tree registry, not unrelated documentation. Leaving it stale would make the six-file convention internally contradictory.
+Limitations: the added ownership is documentation-only; no adapter, library, runtime, global Claude configuration, or transcript work enters T02.
+Reversal: re-cut again if the three registries cannot be made consistent without changing unrelated requirements.

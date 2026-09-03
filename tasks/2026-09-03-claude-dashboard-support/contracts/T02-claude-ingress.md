@@ -1,6 +1,6 @@
 # T02 - Local ingress and privacy contract
 
-**Contract version** - 5
+**Contract version** - 6
 
 **Context** - goal: implement and test the strict Claude hook parser and
   best-effort local Unix-socket ingress after T01's evidence decisions; who uses
@@ -14,8 +14,9 @@
 **Boundaries** - owns: `crates/dashboard/src/claude/hook.rs`,
   `crates/dashboard/tests/claude_ingress.rs`, and
   `docs/specs/dashboard/claude.md` plus the required convention and index
-  updates in `docs/specs/CLAUDE.md` and `docs/specs/README.md`, including unit
-  tests inside `hook.rs` and
+  updates in `docs/specs/CLAUDE.md`, `docs/specs/README.md`, and the dashboard
+  registry `docs/specs/dashboard/overview.md`, including unit tests inside
+  `hook.rs` and
   the Cargo-executed real-socket integration tests in `claude_ingress.rs`; must
   not touch `crates/dashboard/src/claude/mod.rs`,
   `crates/dashboard/src/lib.rs`, `crates/dashboard/src/main.rs`, the core
@@ -29,14 +30,17 @@
   inside the ingress module. Use bounded lengths and framing, version the local
   envelope, use a user-scoped Unix socket, and treat malformed input, unknown
   events, unavailable/full listeners, and oversized values as logged/drop cases
-  that exit successfully without affecting Claude. Never retain the original
-  `serde_json::Value` or forward rejected fields.
+  that exit successfully without affecting Claude. The complete delivery
+  deadline must include socket-path resolution and every filesystem metadata
+  operation, including `symlink_metadata`, not only connect/write calls. Add a
+  real busy/full-listener test that asserts the `ListenerUnavailable` outcome.
+  Never retain the original `serde_json::Value` or forward rejected fields.
 
 **Skills to read and apply** - `writing-specs`, `writing-unit-tests`,
   `code-quality`, `software-design`.
 
 **Acceptance - done when** - the owned ingress module, Cargo-executed ingress
-  tests, spec, and updated spec-tree convention/index provide an
+  tests, spec, and updated spec-tree convention/index/registry provide an
   evidence-backed allowlist for supported Claude events and optional fields,
   parse into an internal record, emit only a bounded versioned newline-delimited
   envelope, and expose a best-effort helper command path that:
@@ -48,6 +52,10 @@
   approved tool/notification/subagent labels;
 - survives concurrent short-lived sends and stale/restarting sockets within the
   selected bounds; and
+- keeps the entire helper attempt, including filesystem metadata work, within
+  the R16 delivery deadline; and
+- exercises a real busy/full listener and asserts the resulting
+  `ListenerUnavailable` outcome; and
 - has negative sentinel tests proving prompt text, assistant text, transcript
   paths, tool input/output, and arbitrary unknown fields do not cross the IPC
   boundary or appear in logs/serialized envelopes.
@@ -67,10 +75,10 @@ or transcript files.
 
 ## Review Frame
 
-**As of** - contract version 5
+**As of** - contract version 6
 
-**Context** - Ingress contract registers the sixth dashboard spec in both convention and index while keeping a Cargo-executed local-socket seam.
+**Context** - Bounded ingress correction closes user-scope, deadline, documentation, and privacy-evidence gaps before M1 can advance.
 
-**Expectations** - Treat documentation as one scoped spec-tree update; enforce the evidence-backed metadata-only parser and IPC boundary without expanding ingress responsibility.
+**Expectations** - Require no shared fallback; deadline covers metadata; align all six-file registries and split R15. Verify busy listener maps to `ListenerUnavailable` and sentinels never reach logs.
 
-**Depth** - Deep review of spec-tree consistency, executable socket tests, and privacy; exclude adapter, shared-core, and runtime behavior.
+**Depth** - Deep review only of socket/IPC, specs, and executable privacy tests; exclude adapter/runtime and reserve authenticated E2E for T05.
