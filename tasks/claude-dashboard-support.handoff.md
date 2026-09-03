@@ -9,79 +9,81 @@
 
 This run adds opt-in, metadata-only Claude Code monitoring to the dashboard
 without transcript access, session control, or Claude configuration mutation.
-M1 evidence/ingress, M2 adapter, and M3 T04 runtime are clean and committed.
-T04 is `fd83209`; the next action is Terra's M3 cross-task sign-off before a
-separate T05 decomposition.
+T01c/T02/T03/T04, envelope remediation, and the live-startup correction are
+committed. A real Claude Haiku interactive lifecycle now passes through the
+dashboard; broader T05 evidence and Terra's M3 cross-task sign-off remain open.
 
 ### Map - read in this order
 
 | Priority | File / section | What to look for |
 |----------|----------------|------------------|
-| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/contracts/T04-claude-runtime.md` | Sealed T04 v1 boundary, including the explicitly approved isolated `main.rs` re-scope. |
-| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-t04-runtime.plan.md` | T04 data flow, bounds, test strategy, owns-list, and checkpoints. |
-| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-t04-runtime.design.md` | Candidate B runtime decomposition and component contracts. |
-| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tmp/orchestrator/2026-09-03-claude-dashboard-support/STATE.md` | Current conductor state and next gate. |
-| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/gates/T01c-report.md` | Durable evidence baseline and four T05 deferrals. |
-| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/gates/T02-report.md` | User-scoped ingress, privacy, and macOS listener outcome evidence. |
-| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/gates/T03-report.md` | Typed decoder, adapter, feature-path, and provider-neutral boundary gate. |
-| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/deferred.md` | Four credential-dependent T05 promotions; do not promote them in T04. |
+| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/docs/specs/dashboard/claude.md` | R11-R17: manual opt-in, exact allowlist, privacy, bounded socket delivery, and the completeness boundary. |
+| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/crates/dashboard/src/main.rs` | Normal startup enters Tokio before `ClaudeListener::bind`; this was the live validation fix in `babf167`. |
+| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/contracts/T04-claude-runtime.md` | Sealed T04 runtime boundary and ownership; do not expand it into T05 by inference. |
+| Read closely | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/deferred.md` | Remaining T05 evidence and final staleness questions. |
+| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/crates/dashboard/src/claude/{command.rs,listener.rs,hook.rs,wire.rs,state.rs,mod.rs}` | The helper, listener, privacy boundary, decoder, adapter state, and shared event channel. |
+| Skim | `/Users/ajeesh/projects/madaboutcode/opencode-mcp/tasks/2026-09-03-claude-dashboard-support/gates/{T01c,T02,T03,T04}-report.md` | Prior gate evidence; live evidence below is newer than the old credential-unavailable note. |
 
 ### World-Facts & Tooling
 
-- The run branch is `conductor/claude-dashboard-support`; gated commits are T01c `401887e`, T02 `aeb8317`, T03 `e631129`, T04 decomposition `bdb8647`, and T04 runtime `fd83209`.
-- T02's targeted ingress test passed 35 tests across three repeat runs; its clippy, format, registry, and diff checks are recorded in `gates/T02-report.md`.
-- T03's targeted adapter test passed 8 tests, Claude library tests passed 46, all dashboard targets passed 206, and workspace check/clippy/format passed; details are in `gates/T03-report.md`.
-- T04's runtime test passed 19 tests across three runs; ingress passed 35, adapter passed 8, Claude library passed 49, all dashboard targets, clippy, format, workspace check, and diff checks passed. Details are in `gates/T04-report.md`.
-- The first T03 Luna request failed with provider HTTP 404 before producing a review; a fresh Luna High request then completed cleanly. The failed request is not a review pass.
-- macOS promptly refuses saturated Unix connections; T02 maps that to `ListenerUnavailable` and proves bounded completion rather than claiming Linux blocking behavior.
-- DeepSeek Flash is the implementation worker; Terra is the persistent design/milestone advisor; Luna High is the independent gate reviewer; a separate `clerk` spec validator is mandatory for T04's modified `claude.md`.
-- Verified commands include `git status --short --branch`, `git diff --check`, `cargo test -p dashboard --test claude_ingress`, `cargo test -p dashboard --test claude_adapter`, `cargo test -p dashboard --lib claude::`, `cargo test -p dashboard --all-targets`, `cargo clippy -p dashboard --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and `cargo check --workspace`.
+- The branch is `conductor/claude-dashboard-support`; current implementation commits are T01c `401887e`, T02 `aeb8317`, T03 `e631129`, T04 decomposition `bdb8647`, T04 runtime `fd83209`, envelope remediation `04a7cf5`, all-worktree commit `bd35c5b`, and live-startup fix `babf167`.
+- `cargo test --workspace` passed after the startup fix: 168 library tests, 8 adapter tests, 38 ingress tests, 20 runtime tests, and 29 bridge tests, with no failures.
+- `cargo clippy --workspace --all-targets -- -D warnings`, `cargo fmt --all -- --check`, and `cargo build -p dashboard` passed after the startup fix.
+- `claude --version` reports Claude Code `2.1.259`; `tmux -V` reports `tmux 3.4`; `opencode2 service status` reports the local service at `http://127.0.0.1:49374`.
+- Before `babf167`, normal dashboard startup panicked at `listener.rs:204` with `there is no reactor running, must be called from the context of a Tokio 1.x runtime` because synchronous `main` called `UnixListener::bind` before entering `rt`. Entering `rt` around the bind fixed the actual runtime path.
+- A real interactive Claude session using model `claude-haiku-4-5-20251001` and temporary command-hook settings caused the dashboard count to move from `27 projects / 252 sessions` to `28 projects / 253 sessions` on `SessionStart`; after the prompt returned `READY`, `/exit` caused `SessionEnd` and the count returned exactly to `27 / 252`.
+- The first one-turn `--print --no-session-persistence` probe also delivered `SessionStart`, but a deliberately delayed `SessionEnd` command was canceled by Claude with the exact message `SessionEnd hook [...] failed: Hook cancelled`; use an interactive session when proving live retention and clean removal.
+- The live test used `--settings <temporary hooks JSON> --setting-sources project`, an explicit inherited `DASHBOARD_CLAUDE_SOCKET`, and synchronous command hooks for `SessionStart`, `StopFailure`, and `SessionEnd`; no Claude settings file, transcript, or credential value was inspected or retained.
 
 ### State & Provenance
 
-- Terra explicitly signed off M1 and M2 and sealed the T04 v1 Review Frame. The T04 frame approves only isolated command-dispatch and listener startup/shutdown additions in `main.rs`; the pre-existing icon-mode dirty hunk must remain verbatim and unstaged.
+- Terra explicitly signed off M1 and M2 and sealed the T04 v1 Review Frame. The live startup correction is a narrow runtime-context fix in `main.rs`; it does not change the T04 protocol boundary.
 - T02 owns path resolution, parsing, serialization, delivery deadline, and privacy filtering. T03 owns wire decoding, Claude lifecycle mapping, snapshots, tombstones, and adapter state. T04 must compose those APIs, not duplicate them.
 - T04 is the runtime/release wiring phase: `dashboard claude-hook`, user-scoped Unix listener, bounded intake, startup ordering, cleanup, manual docs, and runtime tests. The durable contract owns the complete acceptance boundary.
-- T05 alone owns authenticated Claude CLI evidence, full hook-to-dashboard E2E, successful-turn/exit-path/subagent evidence, and final stale-session policy. The four deferrals remain active.
-- T04's first Luna review found three runtime defects; DeepSeek corrected them, and fresh Luna High verification returned CLEAN. T04 is committed as `fd83209`.
+- The user explicitly directed: "run a claude haiku session with your own custom hooks config (temporarily - maybe in a new tmp project in the ./tmp dir) - and validate that the events are flowing - otherwise how are you to test it - use tmux session to capture etc". That directive is satisfied for one real interactive lifecycle, not silently promoted to complete T05 coverage.
+- The live run supersedes only the old claim that authenticated full-path evidence was unavailable: `SessionStart` and `SessionEnd` are now observed through Claude -> hook command -> Unix socket -> listener -> adapter -> dashboard. T05 still owns successful-session async behavior, startup-gap/foreground discovery, exit-path reliability, subagent identity, broader event evidence, and final staleness policy.
+- The prior uncommitted icon/OpenCode/prototype work was intentionally included in `bd35c5b` after the user said "commit it all"; it is no longer an unstaged boundary, but future Claude work should not rework it without an explicit scope.
 
 ### Judgment - Recommended Next Moves
 
-- Request Terra's M3 cross-task sign-off for the committed T04 handoff.
-- Do not start T05 until its own decomposition, contract, and authenticated boundary are explicitly approved.
-- Preserve the four credential-dependent deferrals and do not claim authenticated or complete dashboard behavior from T04 fixtures.
+- Treat the tmux run as concrete live integration evidence, then ask Terra for M3 cross-task sign-off before opening T05; the evidence is strong enough to shape T05, not to waive its ownership gate.
+- For another live run, start the dashboard in a tmux pane with a wrapper that keeps the pane open, use an interactive Claude session, observe the dashboard while Claude is idle, then send `/exit`; do not rely on a delayed `--print` hook because Claude may cancel it at process shutdown.
+- If project identity matters, put the temporary Claude cwd in a nested disposable git repository or outside this repository; a plain directory under `./tmp` resolves to the parent `opencode-mcp` git root.
+- Continue treating hook payloads, Claude configuration, credentials, and transcript JSONL as opaque. Use only temporary settings passed with `--settings` for black-box validation when explicitly requested.
 
 ### Dead Ends & Corrections
 
 - T02 v5 initially failed review because it used a shared `/tmp` fallback, did not bind the full delivery deadline over filesystem metadata, had stale spec registries, malformed R15 structure, and lacked busy-listener/log-capture tests. T02 v6 corrected these and is recorded in `gates/T02-report.md`; do not reintroduce the old fallback or requirements.
 - T03 Luna's first provider request returned HTTP 404 before review. Retrying with a fresh Luna High session produced the clean verdict; do not count provider failure as a review or treat it as an implementation defect.
 - T04 Candidate A (all runtime logic in `main.rs`) and Candidate C (separate binary) were rejected. Candidate B (`claude/command.rs` plus `claude/listener.rs` with narrow main composition) is the sealed choice because it keeps protocol/runtime mechanics testable and preserves `dashboard claude-hook`.
-- The existing `main.rs` icon-mode changes are not part of T04. Do not run a formatter that rewrites that dirty hunk, stage it, or use broad staging commands.
+- Direct normal startup before `babf167` was not a valid integration result: it panicked because `UnixListener::bind` requires an entered Tokio runtime. The fix is `rt.enter()` around the bind, not a change to listener ownership or protocol.
+- The first tmux capture used `"$SESSION:claude"`, which shell-expanded incorrectly and produced `can't find pane`; use `"${SESSION}:claude"` for a tmux target.
+- A delayed synchronous `SessionEnd` hook in `--print` mode was canceled at process shutdown and left the live dashboard session present. That was a probe limitation and a Claude CLI lifecycle observation, not evidence that the interactive path removes sessions incorrectly.
 - Combined large patches previously failed when one expected state line was stale or one added line lacked the patch prefix. Smaller file-oriented patches succeeded; use that approach for gate bookkeeping.
 
 ### Do-Not-Touch
 
-- Never access `~/.claude`, project `.claude`, credentials, or transcript JSONL; T04 is documentation/runtime work only and must remain isolated.
+- Never inspect `~/.claude`, project `.claude`, credentials, or transcript JSONL. A user-requested black-box Claude invocation may use its own opaque auth/config internally, but the test harness must not read or retain those artifacts.
 - Do not modify or stage `crates/dashboard/src/claude/hook.rs`, `state.rs`, or `wire.rs`; those are T02/T03 authorities.
-- Do not modify provider-neutral `adapter.rs`, `snapshot.rs`, `project_identity.rs`, shell files, OpenCode files, or T01c/T02/T03 evidence/gates.
-- Preserve unrelated dirty files, especially `crates/dashboard/src/main.rs`'s icon-mode hunk, mosaic files, `opencode/mod.rs`, and `crates/opencode-client/src/opencode.rs`.
-- Do not start T05 or claim authenticated/full-path validation from T04 fixtures.
+- Do not modify provider-neutral `adapter.rs`, `snapshot.rs`, `project_identity.rs`, shell files, OpenCode files, or prior T01c/T02/T03 evidence/gates for a Claude task.
+- Do not claim complete Claude behavior from this single live lifecycle. Keep the T05 ownership boundary and its remaining evidence areas explicit.
+- Do not commit generated nested `target/` output or machine-local runtime artifacts; the root `.gitignore` now covers nested Rust targets.
 
 ### Open Items - triaged
 
 **Blocks next phase (resolve first):**
 
 1. Terra's M3 cross-task sign-off is required before T05 decomposition.
-2. T05 must retain ownership of authenticated full hook-to-dashboard E2E, final staleness, and the four credential-dependent promotions.
+2. T05 must retain ownership of async/successful-turn behavior, startup-gap/foreground discovery, exit-path reliability, subagent identity, final staleness, and the remaining evidence promotions.
 
 **Resolvable during the work:**
 
-3. Any spec-validator wording failure can be corrected in the owned spec/spec-delta and validated again; no requirement meaning should be guessed.
+3. Convert the live interactive evidence into the next T05 gate artifact without copying raw hook payloads or transcript data.
 4. Any platform-specific listener behavior must be documented as observed or deferred, not generalized from macOS.
 
 **UNSPECIFIED (ask, don't guess):**
 
-5. None currently. Future authenticated lifecycle, async, exit-path, subagent, and final staleness questions are explicitly T05-owned rather than unspecified T04 decisions.
+5. Whether the product should require synchronous hooks for reliable `SessionEnd`, or explicitly define an async-hook/staleness policy, remains a T05 product/runtime decision.
 
 ### Working Commands
 
@@ -89,18 +91,18 @@ separate T05 decomposition.
 # Verify branch, unrelated dirt, and staged/unstaged state
 git status --short --branch
 
-# Check whitespace without rewriting files
-git diff --check
+# Full workspace tests, including the Claude runtime and ingress paths
+cargo test --workspace
 
-# T04 gate commands required by the sealed contract
-cargo test -p dashboard --test claude_runtime
-cargo test -p dashboard --test claude_ingress
-cargo test -p dashboard --test claude_adapter
-cargo test -p dashboard --lib claude::
-cargo test -p dashboard --all-targets
-cargo clippy -p dashboard --all-targets -- -D warnings
+# Workspace quality gates verified after the live-startup fix
+cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
-cargo check --workspace
+cargo build -p dashboard
+
+# Runtime/tool availability used for the live black-box check
+claude --version
+tmux -V
+opencode2 service status
 ```
 
 ---
@@ -153,3 +155,29 @@ cargo check --workspace
 ---
 
 <!-- NEXT SESSION: Rewrite Section 1 to current truth and append a new session entry below. -->
+
+### Session 3 - 2026-09-04
+
+**Phase**: M3 T04 post-gate live integration verification -> passed with a startup correction and T05 boundary retained
+
+**Work done**:
+
+- Responded to the explicit request to run a real Claude Haiku session with temporary custom hooks, use tmux, and validate actual event flow rather than relying only on fixtures.
+- Built `dashboard`, created a disposable hook settings JSON outside `.claude`, created a nested disposable git project under `./tmp`, and ran the dashboard plus Claude in tmux. The test hook command was the absolute `dashboard claude-hook` binary for `SessionStart`, `StopFailure`, and `SessionEnd`, with `DASHBOARD_CLAUDE_SOCKET` inherited by the helper.
+- The first normal dashboard launch exposed a panic before Claude started. Entered the Tokio runtime around `ClaudeListener::bind` in `crates/dashboard/src/main.rs` and committed the correction as `babf167`.
+- Reran with Claude Code `2.1.259`, model `claude-haiku-4-5-20251001`: after trust confirmation, `SessionStart` increased the live dashboard from `27 projects / 252 sessions` to `28 projects / 253 sessions`; Haiku returned `READY`; `/exit` delivered `SessionEnd` and restored the dashboard to exactly `27 / 252`.
+- Removed the temporary project, hook settings, socket, and tmux session. The worktree was clean after the implementation commit; this handoff update is the only new document change now.
+
+**Learned**:
+
+- The T04 fixture path was not sufficient to establish integration confidence; the real CLI lifecycle now proves the interactive synchronous path end to end without retaining raw payloads.
+- Claude `--print --no-session-persistence` can cancel a deliberately delayed `SessionEnd` hook at process shutdown (`Hook cancelled`), so interactive idle-then-`/exit` is the reliable observation method for session retention/removal.
+- A plain cwd under `./tmp` resolves to the parent repository's project identity; a nested disposable git repository isolates the live test project.
+- The dashboard's UI is populated by many existing OpenCode sessions, so the exact count delta, not the visible tile name, was the useful black-box assertion.
+
+**Blockers surfaced**:
+
+- No new code blocker remains after `babf167`; Terra's M3 cross-task sign-off still gates T05 decomposition.
+- T05 remains responsible for async successful-turn behavior, startup-gap/foreground discovery, exit-path reliability, subagent identity, broader event coverage, and final staleness policy; this run proves only the real interactive synchronous `SessionStart`/`SessionEnd` lifecycle.
+
+---
