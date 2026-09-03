@@ -1,0 +1,9 @@
+e8a2889e2efd28e4ef4b74d595c590e600adc71192ac8e2e4c540f2e1ecc35dc  tasks/spikes/2026-09-03-claude-dashboard-support/EVIDENCE.md
+c7bfa6813a204401df3240702127044a76d06106086d3570b664a5ba7a67d81b  tasks/spikes/2026-09-03-claude-dashboard-support/redacted-schemas.md
+cc98de6dc52c177ebd353a16079ba30be60a6321e525170275f8df0adeda62ea  tasks/spikes/2026-09-03-claude-dashboard-support/hook-observer.sh
+3c428b8d7c470f2c677ac9dbafc4890b061819e1e708dfc8350b75d1db493641  tasks/spikes/2026-09-03-claude-dashboard-support/test-async-behavior.sh
+763a946606db42a582da46e294018a023d7fd51f24ee0da002e3bf5e78c3f956  tasks/spikes/2026-09-03-claude-dashboard-support/test-async-observation.sh
+dc3f3a56c6d2387d691a634413bdec13c7ca3644d8e59831ee1ca1c579cb24e1  tasks/spikes/2026-09-03-claude-dashboard-support/test-comprehensive.sh
+d980180fb7acdbc4dabaf048e8b49b7a3b1c61b4d826a7aa39be5e6130c26edd  tasks/spikes/2026-09-03-claude-dashboard-support/test-event-observation.sh
+a1644863780cb3c85defea71fe4050ab1d29c3d8e7aa5204ed994538b3126a78  tasks/spikes/2026-09-03-claude-dashboard-support/test-synchronous-session-start.sh
+bcf89da66ae078c1cb4f713cf3dcf0f2f8a8addcb031890c56bcac937237dbd8  tasks/2026-09-03-claude-dashboard-support/deferred.md
