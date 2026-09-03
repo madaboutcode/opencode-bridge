@@ -114,3 +114,11 @@ Chosen: T02 v3 owns `crates/dashboard/tests/claude_ingress.rs` in addition to `h
 Why: tests inside an unreferenced source file would not run under Cargo, weakening the real-socket and privacy acceptance gate.
 Limitations: T02 still does not own `lib.rs`, `mod.rs`, or runtime wiring; T05 remains the complete authenticated integration gate.
 Reversal: return to Decomposition if the integration test cannot import the ingress module without changing the shared/runtime boundary.
+
+## 2026-09-03 - T02 spec-tree convention update
+
+Considered: create `docs/specs/dashboard/claude.md` while leaving the project convention at five files, or update the convention as part of T02.
+Chosen: T02 v4 owns the required `docs/specs/CLAUDE.md` update registering `claude.md` as the sixth dashboard spec file. The ingress integration test and Claude spec remain T02-owned; adapter/runtime files remain out of scope.
+Why: the feature plan explicitly requires a Claude-specific spec, while the current convention says five files and “no more.” Creating it without updating the convention would knowingly violate project ground truth.
+Limitations: this is a documentation-convention expansion, not permission to create additional spec files; T02 must retain the one-scenario-per-requirement and consumer-lens rules.
+Reversal: return to Decomposition if the convention update reveals an existing spec-tree conflict that cannot be resolved without changing unrelated specs.

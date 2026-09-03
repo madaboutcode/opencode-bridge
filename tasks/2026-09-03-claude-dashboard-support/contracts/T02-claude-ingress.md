@@ -1,6 +1,6 @@
 # T02 - Local ingress and privacy contract
 
-**Contract version** - 3
+**Contract version** - 4
 
 **Context** - goal: implement and test the strict Claude hook parser and
   best-effort local Unix-socket ingress after T01's evidence decisions; who uses
@@ -13,7 +13,8 @@
 
 **Boundaries** - owns: `crates/dashboard/src/claude/hook.rs`,
   `crates/dashboard/tests/claude_ingress.rs`, and
-  `docs/specs/dashboard/claude.md`, including unit tests inside `hook.rs` and
+  `docs/specs/dashboard/claude.md` plus the required convention update in
+  `docs/specs/CLAUDE.md`, including unit tests inside `hook.rs` and
   the Cargo-executed real-socket integration tests in `claude_ingress.rs`; must
   not touch `crates/dashboard/src/claude/mod.rs`,
   `crates/dashboard/src/lib.rs`, `crates/dashboard/src/main.rs`, the core
@@ -34,7 +35,7 @@
   `code-quality`, `software-design`.
 
 **Acceptance - done when** - the owned ingress module, Cargo-executed ingress
-  tests, and spec provide an
+  tests, spec, and updated spec-tree convention provide an
   evidence-backed allowlist for supported Claude events and optional fields,
   parse into an internal record, emit only a bounded versioned newline-delimited
   envelope, and expose a best-effort helper command path that:
@@ -65,10 +66,10 @@ or transcript files.
 
 ## Review Frame
 
-**As of** - contract version 3
+**As of** - contract version 4
 
-**Context** - Executable ingress seam ensures real-socket behavior is Cargo-covered before library wiring.
+**Context** - Ingress task registers its sixth dashboard spec while retaining a Cargo-executed local-socket seam.
 
-**Expectations** - Keep test imports confined to hook behavior and enforce the evidence-backed metadata-only IPC boundary. T05 alone owns authenticated end-to-end dashboard validation.
+**Expectations** - Treat the convention change as scoped registration only; preserve the metadata-only privacy boundary and create no additional spec surface.
 
-**Depth** - Deep review of executable test seam, privacy isolation, and degraded IPC outcomes; exclude adapter, shared-core, and runtime design.
+**Depth** - Deep review of convention conformance, executable socket behavior, and privacy; exclude adapter, shared-core, and runtime design.
