@@ -106,3 +106,11 @@ Chosen: T02 is version 2 and depends on committed T01c; it consumes the current 
 Why: T01c is the actual durable M1 prerequisite. A stale contract dependency would let T02 consume an uncommitted failed-task state and violate the shared-contract correctness rule.
 Limitations: T02's ingress implementation remains independent of adapter/runtime work; T05 still owns authenticated integrated evidence.
 Reversal: return to Decomposition if T01c's gate or evidence baseline changes materially.
+
+## 2026-09-03 - T02 executable test seam
+
+Considered: execute T02 with tests only inside an unreferenced `hook.rs`, or add a Cargo integration test that imports the hook module.
+Chosen: T02 v3 owns `crates/dashboard/tests/claude_ingress.rs` in addition to `hook.rs` and the Claude spec. The integration test must compile the hook module and execute real Unix-socket tests before T03 adds the library module wiring.
+Why: tests inside an unreferenced source file would not run under Cargo, weakening the real-socket and privacy acceptance gate.
+Limitations: T02 still does not own `lib.rs`, `mod.rs`, or runtime wiring; T05 remains the complete authenticated integration gate.
+Reversal: return to Decomposition if the integration test cannot import the ingress module without changing the shared/runtime boundary.

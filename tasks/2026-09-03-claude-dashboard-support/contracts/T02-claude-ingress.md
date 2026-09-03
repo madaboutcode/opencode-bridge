@@ -1,6 +1,6 @@
 # T02 - Local ingress and privacy contract
 
-**Contract version** - 2
+**Contract version** - 3
 
 **Context** - goal: implement and test the strict Claude hook parser and
   best-effort local Unix-socket ingress after T01's evidence decisions; who uses
@@ -11,9 +11,11 @@
 
 **Delivery profile** - `tasks/2026-09-03-claude-dashboard-support/delivery-profile.md` version 1; task override: none.
 
-**Boundaries** - owns: `crates/dashboard/src/claude/hook.rs` and
-  `docs/specs/dashboard/claude.md`, including unit and real-socket tests inside
-  `hook.rs`; must not touch `crates/dashboard/src/claude/mod.rs`,
+**Boundaries** - owns: `crates/dashboard/src/claude/hook.rs`,
+  `crates/dashboard/tests/claude_ingress.rs`, and
+  `docs/specs/dashboard/claude.md`, including unit tests inside `hook.rs` and
+  the Cargo-executed real-socket integration tests in `claude_ingress.rs`; must
+  not touch `crates/dashboard/src/claude/mod.rs`,
   `crates/dashboard/src/lib.rs`, `crates/dashboard/src/main.rs`, the core
   adapter/snapshot types, user Claude configuration, transcript files, or
   unrelated dirty worktree files.
@@ -31,7 +33,8 @@
 **Skills to read and apply** - `writing-specs`, `writing-unit-tests`,
   `code-quality`, `software-design`.
 
-**Acceptance - done when** - the owned ingress module and spec provide an
+**Acceptance - done when** - the owned ingress module, Cargo-executed ingress
+  tests, and spec provide an
   evidence-backed allowlist for supported Claude events and optional fields,
   parse into an internal record, emit only a bounded versioned newline-delimited
   envelope, and expose a best-effort helper command path that:
@@ -47,7 +50,9 @@
   paths, tool input/output, and arbitrary unknown fields do not cross the IPC
   boundary or appear in logs/serialized envelopes.
 
-The tests use a real Unix socket. They validate ingress independently; T05
+The integration tests import the owned hook module and use a real Unix socket,
+so the ingress behavior is actually compiled and executed before T03 wires the
+module into the library. They validate ingress independently; T05
 validates the complete integrated Claude-to-dashboard path after T03/T04 wire
 the adapter and runtime. No test may read or write global Claude configuration
 or transcript files.
@@ -60,10 +65,10 @@ or transcript files.
 
 ## Review Frame
 
-**As of** - contract version 2
+**As of** - contract version 3
 
-**Context** - High-criticality ingress contract consuming T01c's durable, deliberately limited evidence baseline.
+**Context** - Executable ingress seam ensures real-socket behavior is Cargo-covered before library wiring.
 
-**Expectations** - Review metadata-only parsing and bounded real-socket behavior against that baseline and its deferrals. T05 alone proves authenticated hook-to-dashboard integration.
+**Expectations** - Keep test imports confined to hook behavior and enforce the evidence-backed metadata-only IPC boundary. T05 alone owns authenticated end-to-end dashboard validation.
 
-**Depth** - Deep review of privacy and operational boundaries plus feature tests; exclude adapter/runtime design and unverified lifecycle expansion.
+**Depth** - Deep review of executable test seam, privacy isolation, and degraded IPC outcomes; exclude adapter, shared-core, and runtime design.
