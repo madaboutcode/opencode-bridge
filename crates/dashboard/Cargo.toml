@@ -8,7 +8,7 @@ publish = false
 
 [dependencies]
 opencode-client = { path = "../opencode-client" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
 serde_json = "1"
 # T11: Mosaic layout/render, ported from the verified spike
 # (tmp/20260901-prototype-dashboard-layout/), which pinned this same "0.28"

@@ -170,3 +170,7 @@ Considered: put listener/command logic in `main.rs`, add a separate binary, or i
 ## 2026-09-03 - T04 decomposition sign-off
 
 Terra reviewed the T04 design, implementation plan, and contract and sealed the v1 Review Frame. The narrow `main.rs` re-scope is approved for isolated command-dispatch and startup/shutdown composition additions only; the pre-existing icon-mode hunk remains verbatim and unstaged. T04 is released for one DeepSeek implementation pass, mandatory separate spec validation, and one fresh Luna verification. T05 retains authenticated E2E and final staleness ownership.
+
+## 2026-09-03 - T04 spec-validation baseline disposition
+
+The independent T04 spec validator found T04-modification validity clean and identified five strict-rubric exceptions that predate T04: four intentional adapter-internal contract items in `client.md` R6.4-R6.6/boundary prose, and the stale "five-file map" reference in `client.md` plus identical references in non-owned `layout.md`, `visuals.md`, and `interactions.md`. T04 corrects its owned `client.md` reference and records the change in `spec-delta.md`; it does not expand scope into the three non-owned sibling specs or rewrite the established adapter contract. The remaining baseline exceptions must be disclosed to Luna and the gate report, not called T04 regressions.

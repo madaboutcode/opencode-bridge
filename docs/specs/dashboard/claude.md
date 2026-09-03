@@ -56,12 +56,18 @@ deferred to T05 (see R17).
 
 - **R11** — Claude monitoring is opt-in and manual: the dashboard shows a
   Claude session only after the user configures Claude Code's command hooks
-  to run the dashboard's hook helper on Claude lifecycle events. Nothing
-  in the system ever installs, writes, edits, or registers those hook
-  entries, and neither starting nor running the dashboard creates,
-  modifies, or reads any Claude settings file. With no hooks configured,
-  the dashboard is a pure OpenCode dashboard: no Claude session ever
-  appears in it and nothing about Claude is touched.
+  to run the dashboard's hook helper on Claude lifecycle events. The helper
+  is the standalone command `dashboard claude-hook`: each hook entry binds
+  one supported event (R13) to that command, and Claude runs the command
+  with that event's payload on stdin whenever the event fires. The user
+  chooses the scope — Claude Code's user-level or project-level hook
+  settings — and nothing in the system ever installs, writes, edits, or
+  registers those entries; neither starting nor running the dashboard
+  creates, modifies, or reads any Claude settings file. In normal mode the
+  dashboard opens the listener the helper writes to (R15-R16) before its
+  adapters start, so a configured hook's events reach the dashboard. With
+  no hooks configured, the dashboard is a pure OpenCode dashboard: no Claude
+  session ever appears in it and nothing about Claude is touched.
 
   Scenario: Given a user has never configured Claude hooks, when they start
   the dashboard and use Claude Code normally, then the dashboard shows only
@@ -73,8 +79,12 @@ deferred to T05 (see R17).
 - **R12** — Removing the hook entries a user added (or uninstalling the
   dashboard) disables Claude monitoring completely and permanently for that
   user's configuration. Because the dashboard never wrote those entries,
-  there is nothing to un-write: no cleanup step, no repair, and no leftover
-  setting that silently re-enables forwarding later.
+  the only user action is deleting them: with no entry invoking
+  `dashboard claude-hook` (R11), no event is ever forwarded, there is no
+  cleanup step and no repair, and no leftover setting silently re-enables
+  forwarding later. When the dashboard stops, it closes its listener and
+  removes the listener's socket (R16), so a removed capability also leaves
+  no stale socket behind.
 
   Scenario: Given a user has configured hooks and then deletes them from
   their Claude settings, when they continue using Claude Code, then the
@@ -182,6 +192,18 @@ deferred to T05 (see R17).
   Concurrent short-lived hooks are independent — one slow or failing helper
   cannot affect another session's delivery.
 
+  The listener side is equally non-blocking and bounded. Normal dashboard
+  startup binds the listener before any adapter starts; if no user-scoped
+  socket path can be established (R15) or binding fails, Claude monitoring
+  is simply unavailable and the OpenCode dashboard continues normally. The
+  listener serves short-lived concurrent hook connections up to a fixed
+  bound; a connection that is malformed, carries an unknown version or
+  event, is out of bounds, oversized, unterminated, silent past its read
+  deadline, or carries more than one frame is dropped without affecting any
+  later connection. When the dashboard stops, the listener is shut down and
+  its socket is removed (best effort), so a later dashboard takes the path
+  over cleanly.
+
   Scenario: Given the dashboard is not running when a configured hook
   fires, when the hook helper runs, then it exits successfully and quickly
   and the user's Claude session proceeds with no error and no delay —
@@ -194,10 +216,12 @@ deferred to T05 (see R17).
   was running. A session that started before the dashboard, or while the
   dashboard was down, is absent until a later observed event for it
   arrives — and if none ever arrives, it never appears. The dashboard never
-  scans transcripts, history, or session lists to fill that gap. Authenticated
-  successful-turn behavior (event ordering, async-hook viability,
-  exit-path reliability, subagent identity) is explicitly not part of this
-  spec's guarantees until T05's end-to-end gate provides it.
+  scans transcripts, history, or session lists to fill that gap. Wiring the
+  listener into dashboard startup (T04) changes none of this: the
+  capability remains discovery-less, replay-less, and authenticated-gated.
+  Authenticated successful-turn behavior (event ordering, async-hook
+  viability, exit-path reliability, subagent identity) is explicitly not
+  part of this spec's guarantees until T05's end-to-end gate provides it.
 
   [REVIEW: T05 must run an authenticated real Claude flow through hook,
   helper, socket, adapter, and dashboard and record the four deferred

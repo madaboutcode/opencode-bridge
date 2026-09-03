@@ -9,9 +9,11 @@
 //! - [`hook`] (T02, consumed unchanged) — parsing and best-effort delivery.
 //! - [`wire`] — decoding one bounded newline-delimited envelope, strictly.
 //! - [`state`] — pure in-memory transitions and snapshot construction.
+//! - [`command`] (T04) — the `dashboard claude-hook` helper command.
+//! - [`listener`] (T04) — the user-scoped Unix listener for startup.
 //! - this module — the `HarnessAdapter` channel loop wiring them together.
 //!
-//! T04 owns the Unix listener, process dispatch, and dashboard startup wiring;
+//! T04 provides the listener, process dispatch, and dashboard startup wiring;
 //! this module never opens a socket. T05 owns authenticated completeness and
 //! the final stale-session policy; this adapter records receipt timestamps and
 //! removes nothing on its own.
@@ -42,7 +44,9 @@
 //!     authenticated completeness claims, and never reads transcripts or
 //!     touches Claude configuration.
 
+pub mod command;
 pub mod hook;
+pub mod listener;
 mod state;
 pub mod wire;
 
@@ -70,6 +74,10 @@ pub use hook::{
 
 /// The public T03 wire decoder T04 calls after reading one socket line.
 pub use wire::{decode_envelope, DecodeError};
+
+/// The T04 helper command (`dashboard claude-hook`) and the T04 listener.
+pub use command::ClaudeHookCommand;
+pub use listener::{ClaudeListener, ListenerError};
 
 /// The Claude adapter. Runs one receive loop over its typed envelope channel
 /// and pushes whole-session snapshots / tombstones onto the shared sink.

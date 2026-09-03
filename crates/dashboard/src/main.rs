@@ -11,6 +11,13 @@ use std::process::ExitCode;
 use dashboard::{HarnessAdapter, OpencodeAdapter};
 
 fn main() -> ExitCode {
+    // T04: the exact first argument `claude-hook` selects the hook helper
+    // before icon-mode resolution, OpenCode pairing, or any TUI startup.
+    // The helper runs in its own short-lived runtime (claude.md R11/R16).
+    if is_claude_hook_command() {
+        return dashboard::claude::command::ClaudeHookCommand::run();
+    }
+
     let rt = match tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
@@ -34,6 +41,20 @@ fn main() -> ExitCode {
     };
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+
+    // T04: bind the Claude listener and start the Claude adapter before
+    // either the Claude or OpenCode adapter work begins. A bind/path failure
+    // disables only Claude monitoring; the OpenCode dashboard continues
+    // unchanged (FALLBACK-OK: claude.md R16 — listener unavailable is a
+    // harmless, category-only outcome).
+    let mut claude_handles: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    if let Err(error) = start_claude_listener(&rt, tx.clone(), &mut claude_handles) {
+        eprintln!(
+            "dashboard: claude listener unavailable ({})",
+            error.as_str()
+        );
+    }
+
     let adapter = Box::new(OpencodeAdapter::new(client));
     // `HarnessAdapter::run` spawns its own background tasks via an internal
     // `tokio::spawn`, which needs an active runtime context on this thread
@@ -51,6 +72,13 @@ fn main() -> ExitCode {
     // explains why).
     let result = dashboard::shell::run(rx);
 
+    // T04: stop the Claude listener and adapter tasks before the runtime
+    // drops so their socket cleanup and shutdown are deterministic
+    // (claude.md R16).
+    for handle in claude_handles {
+        handle.abort();
+    }
+
     // The dashboard is exiting either way; tear the adapter's background
     // tasks down with the runtime rather than leaving them orphaned.
     drop(rt);
@@ -62,6 +90,32 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+/// T04: the hook helper selects on the exact first argument only
+/// (`claude.md` R11).
+fn is_claude_hook_command() -> bool {
+    std::env::args().nth(1).as_deref() == Some(dashboard::claude::command::HOOK_COMMAND)
+}
+
+/// T04: bind the Claude user-scoped listener and start both Claude tasks
+/// (adapter + listener) before the OpenCode adapter, then return the bind
+/// category on failure — the OpenCode dashboard continues either way.
+fn start_claude_listener(
+    rt: &tokio::runtime::Runtime,
+    sink: tokio::sync::mpsc::UnboundedSender<dashboard::SessionEvent>,
+    handles: &mut Vec<tokio::task::JoinHandle<()>>,
+) -> Result<(), dashboard::claude::listener::ListenerError> {
+    let listener = dashboard::claude::listener::ClaudeListener::bind()?;
+    let (claude_tx, claude_adapter) = dashboard::claude::ClaudeAdapter::channel();
+    // Both `run` calls spawn background tasks, which needs an active runtime
+    // context on this thread; `rt.enter()` provides it for this block.
+    let _entered = rt.enter();
+    // The adapter task pushes provider-neutral events onto the shared sink —
+    // the same channel the OpenCode adapter uses, consumed by the shell.
+    handles.push(Box::new(claude_adapter).run(sink));
+    handles.push(listener.run(claude_tx));
+    Ok(())
 }
 
 async fn connect() -> Result<opencode_client::Client, Box<dyn std::error::Error + Send + Sync>> {

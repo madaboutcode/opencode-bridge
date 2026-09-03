@@ -35,7 +35,7 @@ R1.4–R1.8, R4, R6.4–R6.6.
 - [Known implementation gap: adapter's session-metadata source](#known-implementation-gap-adapters-session-metadata-source)
 
 No child spec files — this is a leaf file in the tree; see `overview.md`
-for the full five-file map.
+for the full six-file map.
 
 ## Scope
 
@@ -79,8 +79,9 @@ final on-screen form.
 
   V1 builds the opencode adapter (meeting R4/R6.4/R6.5 below) against this
   boundary, plus an opt-in Claude hook adapter (`claude.md` R11-R17, mapped
-  in this file) that is experimental until its listener wiring lands (T04) —
-  see ["The Claude hook adapter"](#the-claude-hook-adapter-opt-in-experimental)
+  in this file) whose Unix listener is wired into dashboard startup with
+  T04; it remains opt-in, and its authenticated lifecycle evidence still
+  depends on T05 — see ["The Claude hook adapter"](#the-claude-hook-adapter-opt-in-experimental)
   below. Nothing else is implemented; the core's data model must not assume
   SSE, a REST reconcile sweep, a hook-based listener, or any other
   harness-specific mechanism exists anywhere in its shape.
@@ -262,7 +263,8 @@ final on-screen form.
   that session came from. The slot must exist in the tile layout so this
   isn't a retrofit later. The slot is hidden/absent whenever only one
   harness kind is present in the current data — the default render, since
-  the Claude adapter is opt-in and off until its listener is wired (T04).
+  the Claude adapter is opt-in (T04 wires its listener into startup, but
+  sessions appear only once the user configures hooks).
 
   [REVIEW: OPEN — the exact glyph and its placement within the tile are not
   decided; that's a `visuals.md`/`layout.md` tile-content-ladder detail to
@@ -280,12 +282,14 @@ final on-screen form.
 
 Claude monitoring is a second, opt-in harness in this spec tree
 (`claude.md` R11-R17). Its adapter is implemented on exactly this
-`HarnessAdapter` boundary, but it is **experimental until T04 wires the
-Unix listener into dashboard startup**: the library exposes `ClaudeAdapter`
-and its typed envelope channel, but no runtime listens yet, so Claude
-sessions do not appear in any default dashboard render. Nothing at startup
-reads or writes Claude configuration — the hooks the user adds are the sole
-switch (R11-R12).
+`HarnessAdapter` boundary, and T04 wires the Unix listener into dashboard
+startup: normal startup opens the user-scoped listener and starts the
+adapter, alongside the `dashboard claude-hook` hook command (R11), so a
+configured hook's events reach the dashboard. Claude sessions still appear
+only after the user configures hooks — the capability is opt-in, and
+nothing at startup reads or writes Claude configuration; the hooks the
+user adds are the sole switch (R11-R12). The adapter remains an
+experimental capability pending T05's authenticated end-to-end evidence.
 
 The adapter maps exactly the three T01c-observed hook events (`claude.md`
 R13) onto the shared event stream:
@@ -313,7 +317,7 @@ computed by the core from `last_updated`, is the provisional treatment.
 [REVIEW: T05 owns the final stale-session policy (the R1.7 threshold and
 its on-screen treatment) and the authenticated lifecycle evidence
 (successful-turn behavior, subagent identity, async-hook viability,
-exit-path reliability — `claude.md` R17). Until T04 wires startup and T05
+exit-path reliability — `claude.md` R17). Until T05
 closes, this adapter makes no completeness claim: it shows only sessions
 whose hook events were delivered while the adapter ran, and it cannot
 verify authenticated Claude behavior.]
