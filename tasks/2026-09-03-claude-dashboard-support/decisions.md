@@ -26,3 +26,19 @@ Chosen: begin M1 decomposition; S1-S7 remain evidence-gated tasks, not blockers 
 Why: Terra confirmed all seven definition-of-ready items: boundaries, exclusions, project ground truth, milestones, role bindings, branch/git policy, and user-approved profile.
 Limitations: production exposure remains blocked until the evidence and release gates pass.
 Reversal: return to scoping if M1 evidence forces a material change to boundaries, supported workflows, or delivery posture.
+
+## 2026-09-03 - Real Claude end-to-end validation
+
+Considered: validate the integration only with synthetic hook fixtures or require a real Claude CLI flow.
+Chosen: at least one authenticated real Claude CLI scenario must drive the configured hook, helper, Unix socket, Claude adapter, and dashboard event path end-to-end; all Claude configuration must remain in temporary isolated `HOME` and `CLAUDE_CONFIG_DIR` directories.
+Why: the user requires validation of the actual integration seam, and fixtures cannot prove Claude's hook invocation contract or runtime wiring.
+Limitations: the test must redact content and may record only allowlisted metadata; missing CLI or credentials blocks the evidence gate rather than being papered over with fixtures.
+Reversal: none for this run; relaxing this requirement would require explicit user approval.
+
+## 2026-09-03 - End-to-end gate placement
+
+Considered: require the complete Claude-to-dashboard flow in the pre-implementation evidence task, or place it after adapter and runtime wiring exist.
+Chosen: T01 must exercise the real Claude CLI and configured hook against an isolated observer/helper; T02 must exercise the real Unix socket and privacy boundary; T05 must exercise the complete authenticated hook -> helper -> Unix socket -> adapter -> dashboard event path after T03 and T04.
+Why: Terra found that T01's no-production-source owns-list cannot prove an adapter/event path that later tasks create. The release requirement remains unchanged; only its checkpoint is corrected.
+Limitations: T01/T02 cannot claim integrated dashboard validation. T05 remains blocked if a real Claude CLI or credentials are unavailable.
+Reversal: reopen the decomposition if T03/T04 cannot expose a deterministic test seam for observing the provider-neutral event path.

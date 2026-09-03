@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; decomposing M1.
+Scoping signed off by Terra on 2026-09-03; M1 contracts sealed and ready for execution.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -39,6 +39,13 @@ configuration or persistent monitoring state.
   only task-relevant rules from it.
 - All Claude experiments use isolated temporary `HOME` and
   `CLAUDE_CONFIG_DIR`; the real Claude configuration remains untouched.
+- Release verification must include at least one real Claude CLI flow through
+  the configured hook, helper, Unix socket, adapter, and dashboard event path.
+  Fixtures alone cannot satisfy end-to-end validation. Missing credentials or a
+  missing CLI is a blocked evidence gate, not permission to claim validation.
+- T01 proves real Claude hook invocation into an isolated observer/helper, T02
+  proves the real Unix-socket ingress, and T05 proves the complete integrated
+  hook-to-dashboard path after T03/T04 exist.
 
 ## Milestones
 
@@ -81,10 +88,17 @@ Luna High is never the implementer. The reviewer may write tests that expose
 
 ## Decomposition
 
-Stubbed until Terra signs off scoping. Planned task sequence:
+### M1 - evidence and ingress contract
 
-- T01: isolated Claude lifecycle and identity evidence (S1-S5).
-- T02: local IPC, privacy boundary, Claude-specific specification (S6-S7).
+- T01: isolated Claude lifecycle and identity evidence (S1-S5). Reviewed;
+  starts the milestone.
+- T02: local IPC, privacy boundary, and Claude-specific specification (S6-S7).
+  Reviewed; depends on T01 and runs after its gate report and commit.
+
+Planned later tasks, to be decomposed after each milestone review:
+
 - T03: Claude adapter and feature verification through IPC.
 - T04: runtime wiring, hook command, and user documentation.
-- T05: release regression and rollback verification.
+- T05: release regression, rollback verification, and the authenticated real
+  Claude CLI flow through hook, helper, Unix socket, adapter, and dashboard
+  event path.
