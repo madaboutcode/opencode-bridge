@@ -119,11 +119,14 @@ action is `client.md`'s domain (R6.5).
   No 4th line (cost/tokens were considered and cut — see `overview.md` R10,
   forward reference, for the related non-goal).
 
-  [REVIEW: this fixed "exactly 3 lines" is in tension with `layout.md`
-  R5.3, which defines tile content as a continuous scaling regime (from
-  color-only, up through compact, up through an "extended" multi-line
-  form) rather than a fixed line count. Not reconciled here — flagging for
-  whoever settles which rule governs card content at larger tile sizes.]
+  **Superseded in part:** the "exactly 3 lines" framing is superseded by
+  `layout.md` R5.3 (forward reference), which defines tile-content scaling
+  as a continuous regime: color-only → glyph → compact 3-4 line form →
+  extended form. R6.3's numbered description of the three-line form still
+  stands — it accurately describes the ladder's "compact" regime specifically
+  — but not as a universal rule for every tile size. This number (R6.3) is
+  kept and the "exactly 3 lines" universal claim is void; see `layout.md`
+  R5.3 for the current rule.
 
   Scenario: Given a session named "Apollo" with wire title "fix flaky
   test", status `running` for 2 minutes, and its last tool call editing

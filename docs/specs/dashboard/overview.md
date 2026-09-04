@@ -114,11 +114,16 @@ pointers below for detail this file doesn't carry.
   10 minutes, when the dashboard evaluates that session, then it is
   classified active.
 
-- **R3.1** — `W` defaults to 10 minutes and can be changed from the keyboard
+- **R3.1** — `W` defaults to 15 minutes and can be changed from the keyboard
   while the dashboard is running (keys specified in `interactions.md` R8).
+  Raised from an earlier 10-minute default (2026-09-04): at real usage scale
+  (`layout.md` R5.1) a project's region weight now depends on which sessions
+  are inside `W`, not on lifetime history, so a slightly wider default window
+  better matches how long a session realistically sits in `needs-you` before
+  the user gets back to it.
 
   Scenario: Given the dashboard has just started with no window change made,
-  when you check the active window, then it reads 10 minutes; when you then
+  when you check the active window, then it reads 15 minutes; when you then
   press a window-control key, then the window changes accordingly.
 
 - **R3.2** — A session outside window `W` is "idle," not gone — it still

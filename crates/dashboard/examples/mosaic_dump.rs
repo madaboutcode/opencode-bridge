@@ -71,10 +71,19 @@ fn render_and_report(
 ) {
     let mut term = Terminal::new(TestBackend::new(w, h)).expect("test backend");
     let mut report: Option<DrawReport> = None;
+    let mut layout_cache = dashboard::mosaic::LayoutCache::new();
     let completed = term
         .draw(|f| {
             let area = f.area();
-            report = Some(draw(f, area, sessions, naming, now, window_minutes));
+            report = Some(draw(
+                f,
+                area,
+                sessions,
+                naming,
+                now,
+                window_minutes,
+                &mut layout_cache,
+            ));
         })
         .expect("draw");
     let buf = completed.buffer;
@@ -143,8 +152,8 @@ fn print_report(name: &str, w: u16, h: u16, report: &DrawReport) {
         );
         if let Some(bottom) = &r.bottom_row {
             println!(
-                "    bottom row: idle chips={:?} idle_overflow={} session_overflow={}",
-                bottom.chips_shown, bottom.idle_overflow_count, bottom.session_overflow_count
+                "    bottom row: idle_count={} session_overflow={}",
+                bottom.idle_overflow_count, bottom.session_overflow_count
             );
         }
         for t in &r.tiles {

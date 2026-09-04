@@ -1,6 +1,6 @@
- ◆ opencode  · 2 projects · 7 sessions · ◐ 7                                                                                                          
- big-monorepo  6                                                                                                             ◐ 6  tiny-service  1     
- ◐ Thor                                     ◐ Odin                                     ◐ Njord                                    ◐ Bumrah            
+  opencode  · 2 projects · 7 sessions ·  7                                                                                                          
+ big-monorepo  6                                                                                                              6  tiny-service  1     
+  Thor                                      Odin                                      Njord                                     Bumrah            
  running: bazel build //...                 running: bazel build //...                 running: bazel build //...                 shell: cargo        
  running · 1m                               running · 2m                               running · 3m                               check               
                                                                                                                                   running · 30s       

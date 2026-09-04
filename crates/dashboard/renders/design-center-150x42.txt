@@ -1,42 +1,42 @@
- ◆ opencode  · 5 projects · 8 sessions · ? 2 · ● 1 · ◐ 3 · ○ 2                                                                                        
- web-dashboard  2                 ? 1  ◐ 1  infra-tools  2                   ? 1  ○ 1  mobile-app  2                                         ● 1  ◐ 1 
- ? Dasan                                    ? Rorschach                                ● Frigg                         ◐ Njord                        
-  question · 9m                              question · 6m                             Update app icon assets          editing:                       
-                                                                                       needs-you · 1m                  NotificationManager.swift      
- I found three candidates for removal.      terraform plan -destroy reports 12                                         running · 6m                   
- Which file would you like me to delete?    resources in staging. Confirm destroy      Regenerated all 18 icon                                        
-                                            of 12 resources?                           sizes. Done.                    Fix push notification token    
- you: Clean up the old title components                                                                                refresh                        
- and remove whatever's unused               you: tear down staging, we're              you: update the app icon from                                  
-                                            rebuilding it from the new module          the new 1024 png in Design/     files:                         
- Add multiple code titles with edit                                                                                    NotificationManager.swift,…    
- support                                    Apply terraform destroy for staging,                                       grep: didRegister              
-                                            are you sure?                                                              read: AppDelegate.swift        
+  opencode  · 5 projects · 8 sessions ·  2 ·  1 ·  3 ·  2                                                                                        
+ web-dashboard  2                               1   1  infra-tools  2                                                    1   1  scratch-cli  1    
+  Dasan                                                  Rorschach                                                                 Verdi           
+  question · 9m                                           question · 6m                                                             shell: cargo      
+                                                                                                                                    bench             
+ I found three candidates for removal. Which file        terraform plan -destroy reports 12 resources in staging. Confirm           run · 45s         
+ would you like me to delete?                            destroy of 12 resources?                                                                     
+                                                                                                                                    Prototype a       
+ you: Clean up the old title components and remove       you: tear down staging, we're rebuilding it from the new module            faster arg…       
+ whatever's unused                                                                                                                                    
+                                                         Apply terraform destroy for staging, are you sure?                         files:            
+ Add multiple code titles with edit support                                                                                         src/args.rs       
+                                                                                                                                    read: src/main…   
+                                                                                                                                    write: src/arg…   
+                                                        +1 idle                                                                                       
                                                                                                                                                       
-                                                                                                                                                      
-                                                                                                                                                      
- ◐ Velu                                                                                                                                               
- editing: render.rs                                                                                                                                   
- running · 3m                                                                                                                                         
- ↳ wd-2-sub editing: layout.rs                                                                                                                        
-                                                                                                                                                      
- Reviewing dashboard requirements doc                                                                                                                 
- for session card layout                                                                                                                              
-                                                                                                                                                      
+                                                         mobile-app  2                                                     1   1                    
+                                                          Frigg                                      Njord                                          
+                                                         Update app icon assets                      editing:                                         
+                                                         needs-you · 1m                              NotificationManager.swift                        
+                                                                                                     running · 6m                                     
+  Velu                                                  Regenerated all 18 icon sizes. Done.                                                         
+ editing: render.rs                                                                                  Fix push notification token                      
+ running · 3m                                            you: update the app icon from the new       refresh                                          
+   wd-2-sub editing: layout.rs                         1024 png in Design/                                                                          
+                                                                                                     files:                                           
+ Reviewing dashboard requirements doc for session                                                    NotificationManager.swift,…                      
+ card layout                                                                                         grep: didRegister                                
+                                                                                                     read: AppDelegate.swift                          
  files: requirements.md, render.rs                                                                                                                    
  read: requirements.md                                                                                                                                
  grep: R5.2                                                                                                                                           
- shell: cargo build                                                                    scratch-cli  1                                             ◐ 1 
-                                                                                       ◐ Verdi                                                        
-                                                                                       shell: cargo bench                                             
-                                                                                       running · 45s                                                  
+ shell: cargo build                                                                                                                                   
                                                                                                                                                       
-                                                                                       Prototype a faster arg parser                                  
                                                                                                                                                       
-                                                                                       files: src/args.rs                                             
-                                                                                       read: src/main.rs                                              
-                                                                                       write: src/args.rs                                             
                                                                                                                                                       
-                                           ○ Trinity · 51m                                                                                            
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
+                                                                                                                                                      
                                                                                                                                                       
 q quit  arrows/jk move  enter select  ] window  a all                                                                       hidden: docs-site (1 idle)

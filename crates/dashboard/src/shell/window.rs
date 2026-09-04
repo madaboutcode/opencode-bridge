@@ -5,7 +5,7 @@
 //! (clamp, no-auto-show-all) are testable without a terminal or a crossterm
 //! `KeyEvent`.
 
-pub const DEFAULT_MINUTES: u32 = 10;
+pub const DEFAULT_MINUTES: u32 = 15;
 pub const MIN_MINUTES: u32 = 1;
 pub const MAX_MINUTES: u32 = 60;
 const COARSE_STEP: u32 = 5;
@@ -115,22 +115,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn default_window_is_10_minutes_not_show_all() {
+    fn default_window_is_15_minutes_not_show_all() {
         let w = WindowState::new();
         assert_eq!(w.as_window(), Window::Minutes(DEFAULT_MINUTES));
+        assert_eq!(DEFAULT_MINUTES, 15);
     }
 
     #[test]
     fn grow_and_shrink_use_the_documented_deltas() {
         let mut w = WindowState::new();
         w.apply(WindowKey::GrowCoarse);
-        assert_eq!(w.as_window(), Window::Minutes(15));
+        assert_eq!(w.as_window(), Window::Minutes(20));
         w.apply(WindowKey::ShrinkCoarse);
-        assert_eq!(w.as_window(), Window::Minutes(10));
+        assert_eq!(w.as_window(), Window::Minutes(15));
         w.apply(WindowKey::GrowFine);
-        assert_eq!(w.as_window(), Window::Minutes(11));
+        assert_eq!(w.as_window(), Window::Minutes(16));
         w.apply(WindowKey::ShrinkFine);
-        assert_eq!(w.as_window(), Window::Minutes(10));
+        assert_eq!(w.as_window(), Window::Minutes(15));
     }
 
     #[test]
@@ -169,13 +170,13 @@ mod tests {
     #[test]
     fn window_keys_exit_show_all_and_resume_from_the_last_numeric_value() {
         let mut w = WindowState::new();
-        w.apply(WindowKey::GrowCoarse); // 15m
+        w.apply(WindowKey::GrowCoarse); // 20m
         w.apply(WindowKey::ShowAll);
         assert_eq!(w.as_window(), Window::All);
         w.apply(WindowKey::GrowCoarse);
         assert_eq!(
             w.as_window(),
-            Window::Minutes(20),
+            Window::Minutes(25),
             "] from show-all must resume numeric windowing from the last W, not the default"
         );
     }

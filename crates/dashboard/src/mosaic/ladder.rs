@@ -213,6 +213,67 @@ fn subagent_line(
     ])
 }
 
+/// Above this many subagents, `subagent_block_lines` stops rendering one
+/// line per subagent and switches to the single-line summary form (point 7
+/// of the dedup-dense-content task). 3 or fewer keeps the original
+/// one-line-each behavior unchanged.
+const DENSE_SUBAGENT_THRESHOLD: usize = 3;
+
+/// A short word for a subagent's state, used only in the dense summary
+/// suffix below (`subagent_block_lines`) — not the full status-line
+/// vocabulary (`question`/`needs-you`/`running`/`idle`), just enough to hint
+/// whether the "other" subagents are waiting on something or still going.
+fn subagent_state_word(state: State) -> &'static str {
+    match state {
+        State::Question | State::NeedsYou => "waiting",
+        State::Running => "running",
+        State::Idle => "idle",
+    }
+}
+
+/// Renders a dense subagent block's single summary line: the most urgent
+/// subagent by name and action (a question/needs-you-equivalent one if any,
+/// else the first spawned — `subs` is already sorted most-urgent-first by
+/// `view::build_projects`) plus a `· N other(s) <state>` suffix, e.g.
+/// `↳ Thor-17 waiting on permission · 8 others running`. The suffix's state
+/// word describes the next-most-urgent of the "other" subagents
+/// (`subs[1]`), a representative hint rather than a full breakdown — a
+/// one-line summary can't enumerate every other subagent's own state.
+fn subagent_summary_line(subs: &[SubagentView], wi: u16, tick: usize) -> Line<'static> {
+    let lead = &subs[0];
+    let others = subs.len() - 1;
+    let others_word = if others == 1 { "other" } else { "others" };
+    let state_word = subagent_state_word(subs[1].state);
+    let lead_text = if lead.action.is_empty() {
+        lead.nick.clone()
+    } else {
+        format!("{} {}", lead.nick, lead.action)
+    };
+    let glyph = palette::state_glyph(lead.state, tick);
+    let body = format!("{glyph} {lead_text} · {others} {others_word} {state_word}");
+    let connector = format!("{} ", palette::connector_glyph());
+    let avail = (wi as usize).saturating_sub(connector.chars().count());
+    let truncated = truncate_ellipsis(&body, avail);
+    Line::from(vec![
+        Span::styled(connector, Style::new().fg(palette::TEXT_DIM)),
+        Span::styled(truncated, Style::new().fg(palette::tile_text(lead.state))),
+    ])
+}
+
+/// The extended regime's subagent block content (point 7): 3 or fewer
+/// subagents render one line each, unchanged. More than 3 collapse to a
+/// single summary line instead of spending the tile's limited extended-form
+/// rows on a name per subagent.
+fn subagent_block_lines(subs: &[SubagentView], wi: u16, tick: usize) -> Vec<Line<'static>> {
+    if subs.len() <= DENSE_SUBAGENT_THRESHOLD {
+        return subs
+            .iter()
+            .map(|sub| subagent_line(sub, wi, tick, true, 0))
+            .collect();
+    }
+    vec![subagent_summary_line(subs, wi, tick)]
+}
+
 /// Status line forms (`layout.md` R5.3 "Status line forms"). `subagent_lines_rendered`
 /// suppresses the trailing ` ↳N` tail (it only appears when subagent lines have no room
 /// of their own elsewhere in the tile).
@@ -410,13 +471,39 @@ fn elastic_budget_split(raw_budget: usize, has_blank_prefix: bool) -> (bool, usi
     }
 }
 
+/// Collapses consecutive duplicate entries into one `text ×N` entry, so
+/// several identical actions in a row (e.g. `running: read` three times)
+/// spend one elastic row instead of three (point 7). Only *consecutive*
+/// repeats collapse — a repeat separated by a different entry in between
+/// stays as two separate entries, never reordered or merged across the gap.
+fn collapse_consecutive(entries: &[String]) -> Vec<String> {
+    let mut collapsed: Vec<(&str, usize)> = vec![];
+    for e in entries {
+        match collapsed.last_mut() {
+            Some((text, count)) if *text == e.as_str() => *count += 1,
+            _ => collapsed.push((e.as_str(), 1)),
+        }
+    }
+    collapsed
+        .into_iter()
+        .map(|(text, count)| {
+            if count > 1 {
+                format!("{text} ×{count}")
+            } else {
+                text.to_string()
+            }
+        })
+        .collect()
+}
+
 fn recent_actions_elastic(recent: &[String], wi: u16, budget: usize) -> Vec<Line<'static>> {
     if budget == 0 || recent.is_empty() {
         return vec![];
     }
-    let k = budget.min(recent.len());
-    let start = recent.len() - k;
-    let shown = &recent[start..];
+    let collapsed = collapse_consecutive(recent);
+    let k = budget.min(collapsed.len());
+    let start = collapsed.len() - k;
+    let shown = &collapsed[start..];
     shown
         .iter()
         .enumerate()
@@ -478,11 +565,7 @@ fn extended_running(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileConten
     let b4 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s
-            .subs
-            .iter()
-            .map(|sub| subagent_line(sub, wi, tick, true, 0))
-            .collect(),
+        lines: subagent_block_lines(&s.subs, wi, tick),
     };
     let b5 = Block {
         id: "title",
@@ -581,11 +664,7 @@ fn extended_question(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileConte
     let b6 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s
-            .subs
-            .iter()
-            .map(|sub| subagent_line(sub, wi, tick, true, 0))
-            .collect(),
+        lines: subagent_block_lines(&s.subs, wi, tick),
     };
 
     // indices: 0=nick 1=badge 2=assistant(elastic placeholder) 3=you 4=title 5=subagent
@@ -644,11 +723,7 @@ fn extended_needs_you(s: &SessionView, wi: u16, h: u16, tick: usize) -> TileCont
     let b4 = Block {
         id: "subagent",
         blank_prefix: false,
-        lines: s
-            .subs
-            .iter()
-            .map(|sub| subagent_line(sub, wi, tick, true, 0))
-            .collect(),
+        lines: subagent_block_lines(&s.subs, wi, tick),
     };
     let b5_placeholder = Block {
         id: "assistant",
@@ -890,5 +965,158 @@ pub fn build_tile_content(s: &SessionView, wi: u16, h: u16, tick: usize) -> Tile
             State::NeedsYou => extended_needs_you(s, wi, h, tick),
             State::Idle => extended_idle(s, wi, h, tick),
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::snapshot::{HarnessKind, SessionId};
+
+    fn base_session(state: State) -> SessionView {
+        SessionView {
+            session_id: SessionId::new(HarnessKind("test"), "s"),
+            nick: "nick".into(),
+            title: "title".into(),
+            state,
+            age: "1m".into(),
+            age_secs: 60,
+            wait_m: None,
+            action: Some("running: read".into()),
+            subs: vec![],
+            recent: vec![],
+            files: vec![],
+            assistant_text: String::new(),
+            user_prompt: String::new(),
+        }
+    }
+
+    fn sub(nick: &str, action: &str, state: State) -> SubagentView {
+        SubagentView {
+            nick: nick.into(),
+            action: action.into(),
+            state,
+        }
+    }
+
+    // --- point 7a: dense subagent lines ---
+
+    #[test]
+    fn three_or_fewer_subagents_render_one_line_each_unchanged() {
+        let subs = vec![
+            sub("a", "editing", State::Running),
+            sub("b", "testing", State::Running),
+            sub("c", "reviewing", State::NeedsYou),
+        ];
+        let lines = subagent_block_lines(&subs, 40, 0);
+        assert_eq!(lines.len(), 3, "3 or fewer must keep one line per subagent");
+    }
+
+    #[test]
+    fn more_than_three_subagents_collapse_to_one_summary_line() {
+        let subs = vec![
+            sub("Thor-17", "waiting on permission", State::NeedsYou),
+            sub("a", "running tests", State::Running),
+            sub("b", "reading files", State::Running),
+            sub("c", "writing", State::Running),
+        ];
+        let lines = subagent_block_lines(&subs, 60, 0);
+        assert_eq!(
+            lines.len(),
+            1,
+            "more than 3 subagents must collapse to a single summary line"
+        );
+        let text = lines[0].to_string();
+        assert!(
+            text.contains("Thor-17") && text.contains("waiting on permission"),
+            "the most urgent (already-sorted-first) subagent leads by name and action: {text}"
+        );
+        assert!(
+            text.contains("3 others"),
+            "must summarize the remaining count: {text}"
+        );
+    }
+
+    #[test]
+    fn extended_running_tile_uses_the_dense_subagent_summary_above_threshold() {
+        let mut s = base_session(State::Running);
+        s.subs = vec![
+            sub("a", "one", State::Running),
+            sub("b", "two", State::Running),
+            sub("c", "three", State::Running),
+            sub("d", "four", State::Running),
+            sub("e", "five", State::Running),
+        ];
+        let content = build_tile_content(&s, 40, 12, 0);
+        let subagent_lines: Vec<&Line> = content
+            .lines
+            .iter()
+            .filter(|l| l.to_string().contains("others"))
+            .collect();
+        assert_eq!(
+            subagent_lines.len(),
+            1,
+            "a running tile with 5 subagents must render the dense summary form, not 5 lines: {:?}",
+            content
+                .lines
+                .iter()
+                .map(|l| l.to_string())
+                .collect::<Vec<_>>()
+        );
+    }
+
+    // --- point 7b: consecutive-duplicate collapsing in recent actions ---
+
+    #[test]
+    fn collapse_consecutive_merges_only_adjacent_duplicates() {
+        let entries = vec![
+            "running: read".to_string(),
+            "running: read".to_string(),
+            "running: read".to_string(),
+            "running: write".to_string(),
+            "running: read".to_string(),
+        ];
+        let collapsed = collapse_consecutive(&entries);
+        assert_eq!(
+            collapsed,
+            vec![
+                "running: read ×3".to_string(),
+                "running: write".to_string(),
+                "running: read".to_string(),
+            ],
+            "non-adjacent repeats must stay separate, never merged across the gap"
+        );
+    }
+
+    #[test]
+    fn recent_actions_elastic_collapses_before_applying_the_row_budget() {
+        let entries: Vec<String> = vec![
+            "running: read".to_string(),
+            "running: read".to_string(),
+            "running: read".to_string(),
+        ];
+        let lines = recent_actions_elastic(&entries, 40, 5);
+        assert_eq!(
+            lines.len(),
+            1,
+            "three identical consecutive entries must collapse to one row"
+        );
+        assert_eq!(lines[0].to_string(), "running: read ×3");
+    }
+
+    #[test]
+    fn recent_actions_elastic_budget_counts_collapsed_entries_not_raw_lines() {
+        // 4 raw entries that collapse to 2 distinct rows; with a budget of
+        // 1 the *collapsed* list's most-recent entry must be kept, not a
+        // budget computed against the raw (pre-collapse) entry count.
+        let entries: Vec<String> = vec![
+            "running: read".to_string(),
+            "running: read".to_string(),
+            "running: write".to_string(),
+            "running: write".to_string(),
+        ];
+        let lines = recent_actions_elastic(&entries, 40, 1);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].to_string(), "running: write ×2");
     }
 }

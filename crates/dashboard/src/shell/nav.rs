@@ -82,9 +82,18 @@ mod tests {
         let (sessions, naming, now) = fixtures::design_center();
         let mut term = Terminal::new(TestBackend::new(w, h)).expect("test backend");
         let mut report = None;
+        let mut layout_cache = crate::mosaic::LayoutCache::new();
         term.draw(|f| {
             let area = f.area();
-            report = Some(crate::mosaic::draw(f, area, &sessions, &naming, now, 10));
+            report = Some(crate::mosaic::draw(
+                f,
+                area,
+                &sessions,
+                &naming,
+                now,
+                10,
+                &mut layout_cache,
+            ));
         })
         .expect("draw");
         report.expect("report set")

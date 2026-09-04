@@ -45,6 +45,10 @@ pub struct App {
     selected: Option<TileId>,
     last_order: Vec<TileId>,
     should_quit: bool,
+    /// Owned across the whole session so real frames actually benefit from
+    /// `layout.md` R5.4's reflow gate (point 6) — a fresh cache per call
+    /// would be equivalent to always recomputing.
+    layout_cache: mosaic::LayoutCache,
 }
 
 impl Default for App {
@@ -62,6 +66,7 @@ impl App {
             selected: None,
             last_order: Vec::new(),
             should_quit: false,
+            layout_cache: mosaic::LayoutCache::new(),
         }
     }
 
@@ -118,6 +123,7 @@ impl App {
             self.live.naming(),
             now,
             self.window.minutes(),
+            &mut self.layout_cache,
         );
 
         self.last_order = nav::reading_order(&report);
@@ -315,7 +321,7 @@ mod tests {
         let buf = term.backend().buffer();
         let last_row: String = (0..80).map(|x| buf[(x, 23)].symbol()).collect();
         assert!(
-            last_row.starts_with("window: 10m (1 live / 0 idle)"),
+            last_row.starts_with("window: 15m (1 live / 0 idle)"),
             "footer row was: {last_row:?}"
         );
     }

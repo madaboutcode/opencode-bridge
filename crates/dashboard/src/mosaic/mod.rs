@@ -35,4 +35,5 @@ pub mod render;
 pub mod squarify;
 pub mod view;
 
+pub use layout::LayoutCache;
 pub use render::{draw, DrawReport};

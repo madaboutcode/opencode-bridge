@@ -42,7 +42,6 @@ pub struct TileReport {
 }
 
 pub struct BottomRowReport {
-    pub chips_shown: Vec<String>,
     pub idle_overflow_count: usize,
     pub session_overflow_count: usize,
 }
@@ -97,9 +96,18 @@ pub struct DrawReport {
 ///
 /// `now` drives every elapsed-time string and the running-glyph animation
 /// tick, computed fresh on every call — nothing here is cached across
-/// frames (`layout.md` R5.4). `window_minutes` is `overview.md` R3's
-/// active-window setting, owned by T12/the core, not this module; it's
-/// used only for R9's empty-state copy.
+/// frames. `window_minutes` is `overview.md` R3's active-window setting,
+/// owned by T12/the core, not this module; it's used only for R9's
+/// empty-state copy.
+///
+/// `layout_cache` gates the one thing that *is* now cacheable across frames:
+/// the squarify geometry itself (`layout.md` R5.4, as revised — point 6 of
+/// the task that added this parameter). Every call still rebuilds
+/// `ProjectView`/tile content fresh from `sessions`; `layout_cache` only
+/// decides whether `layout::layout_body` actually reruns or hands back the
+/// Rects it computed last time. Pass a fresh `layout::LayoutCache::new()`
+/// for a one-shot render (tests, `mosaic_dump`); `shell::app::App` owns one
+/// across the whole session so real frames benefit from it.
 pub fn draw(
     f: &mut Frame,
     area: Rect,
@@ -107,6 +115,7 @@ pub fn draw(
     naming: &NamingClaimMap,
     now: Timestamp,
     window_minutes: u32,
+    layout_cache: &mut layout::LayoutCache,
 ) -> DrawReport {
     f.render_widget(Block::new().style(Style::new().bg(palette::GUTTER)), area);
 
@@ -178,7 +187,7 @@ pub fn draw(
         };
     }
 
-    let body_layout = layout::layout_body(&projects, body_rect);
+    let body_layout = layout_cache.get_or_compute(&projects, body_rect);
 
     let mut region_reports = Vec::with_capacity(body_layout.regions.len());
     for rc in &body_layout.regions {
@@ -242,15 +251,9 @@ fn draw_region(
         return base(tag_counts_shown, None, vec![]);
     }
 
-    let bottom_row = rc.bottom_row_rect.map(|rect| {
-        draw_bottom_row(
-            f,
-            rect,
-            project,
-            &rc.idle_sessions_sorted,
-            rc.overflow_count,
-        )
-    });
+    let bottom_row = rc
+        .bottom_row_rect
+        .map(|rect| draw_bottom_row(f, rect, rc.idle_count, rc.overflow_count));
 
     let tiles: Vec<TileReport> = rc
         .tiles
@@ -378,77 +381,46 @@ fn draw_tag_row(
     true
 }
 
-/// Draws the region's bottom row: idle chips (`○ nick · age`,
-/// most-recent-first), then the R5.6 overflow chip (`+N sessions`) if this
-/// project had more than 3 active sessions, then the R5.2 idle overflow
-/// (`+N idle`) if chips ran out of room. See `layout.rs`'s
-/// `RegionContent::bottom_row_rect` doc comment for why both concerns
-/// share this one row.
+/// Draws the region's bottom row: a bare `+N idle` count (point 5 — no
+/// individual idle chips/names anymore, per-session idle identification was
+/// an explicit, confirmed non-goal) and/or the R5.6 overflow chip
+/// (`+N sessions`) if this project had more than 3 active sessions. Both
+/// reuse the same small-chip mechanic, per `layout.rs`'s
+/// `RegionContent::bottom_row_rect` doc comment on why they share one row.
 fn draw_bottom_row(
     f: &mut Frame,
     rect: Rect,
-    project: &ProjectView,
-    idle_sorted: &[usize],
+    idle_count: usize,
     session_overflow_count: usize,
 ) -> BottomRowReport {
     // FALLBACK-OK: layout.md R9.2 — same degenerate-allocation reasoning as
-    // `draw_tag_row` above; a zero-width bottom row draws no chips rather
+    // `draw_tag_row` above; a zero-width bottom row draws nothing rather
     // than asserting.
     if rect.width == 0 {
         return BottomRowReport {
-            chips_shown: vec![],
-            idle_overflow_count: idle_sorted.len(),
+            idle_overflow_count: idle_count,
             session_overflow_count,
         };
     }
-    let avail = (rect.width as usize).saturating_sub(8);
-    let mut shown = vec![];
-    let mut used = 0usize;
-    let mut placed = 0usize;
-    for &idx in idle_sorted {
-        let s = &project.sessions[idx];
-        let chip = format!(
-            "{} {} · {}",
-            palette::state_glyph(State::Idle, 0), // tick unused for Idle
-            s.nick,
-            s.age
-        );
-        let clen = chip.chars().count();
-        let add = if placed == 0 { clen } else { clen + 2 };
-        if used + add > avail {
-            break;
-        }
-        used += add;
-        placed += 1;
-        shown.push(chip);
-    }
-    let mut x = rect.x;
-    for (i, chip) in shown.iter().enumerate() {
-        if i > 0 {
-            x += 2;
-        }
-        f.buffer_mut()
-            .set_string(x, rect.y, chip, Style::new().fg(palette::STATUS_IDLE));
-        x += chip.chars().count() as u16;
-    }
-
-    let idle_overflow_count = idle_sorted.len() - placed;
-    let mut trailer_parts: Vec<String> = vec![];
+    let mut parts: Vec<String> = vec![];
     if session_overflow_count > 0 {
-        trailer_parts.push(format!("+{session_overflow_count} sessions"));
+        parts.push(format!("+{session_overflow_count} sessions"));
     }
-    if idle_overflow_count > 0 {
-        trailer_parts.push(format!("+{idle_overflow_count} idle"));
+    if idle_count > 0 {
+        parts.push(format!("+{idle_count} idle"));
     }
-    if !trailer_parts.is_empty() {
-        let text = trailer_parts.join("  ");
-        let start_x = if placed > 0 { x + 2 } else { rect.x };
-        f.buffer_mut()
-            .set_string(start_x, rect.y, &text, Style::new().fg(palette::TEXT_DIM));
+    if !parts.is_empty() {
+        let text = parts.join("  ");
+        let truncated = truncate_ellipsis(&text, rect.width as usize);
+        f.buffer_mut().set_string(
+            rect.x,
+            rect.y,
+            &truncated,
+            Style::new().fg(palette::TEXT_DIM),
+        );
     }
     BottomRowReport {
-        chips_shown: shown,
-        idle_overflow_count,
+        idle_overflow_count: idle_count,
         session_overflow_count,
     }
 }
@@ -755,9 +727,18 @@ mod tests {
     ) -> (DrawReport, Terminal<TestBackend>) {
         let mut term = Terminal::new(TestBackend::new(w, h)).expect("test backend");
         let mut report = None;
+        let mut layout_cache = layout::LayoutCache::new();
         term.draw(|f| {
             let area = f.area();
-            report = Some(draw(f, area, sessions, naming, now, window_minutes));
+            report = Some(draw(
+                f,
+                area,
+                sessions,
+                naming,
+                now,
+                window_minutes,
+                &mut layout_cache,
+            ));
         })
         .expect("draw");
         (report.expect("report set"), term)
@@ -843,6 +824,42 @@ mod tests {
                 r.raw
             );
         }
+    }
+
+    #[test]
+    fn idle_sessions_render_as_a_bare_count_never_individually_named() {
+        // `infra-tools` in the design-center fixture has one idle session
+        // ("it-2") alongside one needs-you session — real render evidence
+        // that point 5's chip removal actually reached the screen, not just
+        // the layout report.
+        let (sessions, naming, now) = fixtures::design_center();
+        let (report, term) = render_at(&sessions, &naming, now, 10, 150, 42);
+
+        let idle_session_id =
+            crate::snapshot::SessionId::new(crate::snapshot::HarnessKind("fixture"), "it-2");
+        let idle_nick = naming
+            .nickname_of(&idle_session_id)
+            .expect("it-2 must have a claimed nickname")
+            .display_word();
+
+        let infra_region = report
+            .regions
+            .iter()
+            .find(|r| r.project_name == "infra-tools")
+            .expect("infra-tools region must be drawn");
+        let bottom = infra_region
+            .bottom_row
+            .as_ref()
+            .expect("infra-tools has an idle session, so its bottom row must be drawn");
+        assert_eq!(bottom.idle_overflow_count, 1);
+
+        let row_y = infra_region.plate.y + infra_region.plate.height - 1;
+        let row = row_text(&term, row_y, 150);
+        assert!(row.contains("+1 idle"), "bottom row was: {row:?}");
+        assert!(
+            !row.contains(&idle_nick),
+            "the idle session's own nickname must never appear on screen: row was {row:?}"
+        );
     }
 
     #[test]

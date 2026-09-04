@@ -23,7 +23,7 @@ const BINDINGS: &[(&str, &str)] = &[
     ("[", "window -= 5m"),
     ("Shift+]", "window += 1m"),
     ("Shift+[", "window -= 1m"),
-    ("w", "reset window to 10m"),
+    ("w", "reset window to 15m"),
     ("a", "show all sessions regardless of age"),
 ];
 

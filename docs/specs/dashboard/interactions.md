@@ -144,7 +144,7 @@ only specifies the keys and the footer text.
   |---|---|
   | `]` | `W += 5m` |
   | `[` | `W -= 5m` |
-  | `w` | Reset `W` to the default, 10m |
+  | `w` | Reset `W` to the default, 15m (`overview.md` R3.1) |
   | `a` | Set `W` to "show all" — every session counts as active regardless of age |
   | `Shift+]` | `W += 1m` (fine-tune) |
   | `Shift+[` | `W -= 1m` (fine-tune) |

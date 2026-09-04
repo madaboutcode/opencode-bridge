@@ -56,48 +56,101 @@ R6.4-R6.6).
   fixed-size boxes with blank space around smaller cards.
 
 - **R5.1** — Each project region's weight (the squarify algorithm's input
-  for the first pass, R5) is the number of top-level sessions it currently
-  shows, counting all states (running, needs-you, idle). Subagent sessions
-  never add to a project's weight — a subagent is content inside its parent
-  session's tile (R5.6), not a region of its own. A project with only idle
-  sessions is excluded from the region packing entirely; it appears only in
-  the footer as `hidden: <name> (N idle)`. Projects are always packed in
-  first-appearance order and never re-sorted by weight or
+  for the first pass, R5) is the sum of R5.2's per-session weight over only
+  the project's in-window sessions — a session outside the active window `W`
+  (`overview.md` R3) contributes nothing to its project's weight, regardless
+  of how many such sessions exist or what state they were last in. Subagent
+  sessions never add a region of their own — a subagent is content inside
+  its parent session's tile (R5.6), never a separate weight entry. A project
+  whose in-window sessions sum to zero weight (including a project with only
+  idle sessions) is excluded from the region packing entirely; it appears
+  only in the footer as `hidden: <name> (N idle)`. Projects are always
+  packed in first-appearance order and never re-sorted by weight or
   status — this ordering is kept because it lets the user visually compare
   specific projects side by side, not to hold screen position (R5.7 retracts
   that reasoning). Adjacent project regions are snapped to share exact
   edges — no visible gap and no overlap between neighboring regions.
+
+  **Superseded in part:** the original wording of this
+  requirement weighted a project region by "the number of top-level sessions
+  it currently shows, counting all states (running, needs-you, idle)" — a
+  flat count of a project's entire visible session history, in or out of the
+  active window. At real usage scale (22 projects, ~230 sessions accumulated
+  over time, but usually only 0-6 actually active at once), that let a
+  project's region width scale with stale history rather than what's
+  currently relevant: a project with 74 old sessions got 4-5x the area of
+  one with 16, even though both had about 1 live session. This number (R5.1)
+  is kept and the flat-count-of-all-states clause is void; the
+  sum-of-in-window-weight rule above (sourced from R5.2's per-session weight
+  table) is the current rule. The "project with no qualifying sessions is
+  excluded" and "first-appearance order" clauses are unchanged — only how
+  the weight number itself is computed changed. An "exempt a stuck
+  `needs-you`/failed session from the window regardless of age" alternative
+  was considered and explicitly rejected — the window cutoff is strict, no
+  exceptions, confirmed twice by the project owner.
 
   Scenario: Given project A has 3 sessions, project B has 1 session, and
   project C has sessions that are all idle, when the dashboard renders, then
   A's region is roughly 3x the area of B's region, C does not appear as a
   region at all, and the footer shows `hidden: C (N idle)`.
 
+  Scenario: Given project A has 1 running session inside `W` and 73 sessions
+  outside `W`, and project B has 1 running session inside `W` and 15
+  sessions outside `W`, when the dashboard renders, then A's and B's regions
+  are the same size — both project weights equal R5.2's `running` weight,
+  since none of either project's out-of-window sessions contribute anything
+  — not a 74:16 ratio, which the old flat-count rule would have produced.
+
 - **R5.2** — Each session tile's weight (the squarify algorithm's input for
-  the per-region pass, R5) is content demand, not status: idle = 1,
-  running/needs-you/question = 2, plus 1 per subagent the session has.
-  (Status still governs color, glyph, and sort order per `visuals.md`
-  R6.1/R6.7 — never tile area.) Idle sessions are pulled out of the tile
-  packing entirely: they render as a single chip row (`○ nick · age`, e.g.
-  `○ hawk-otter · 51m`) on the region's last row, chips separated by two
-  spaces in most-recent-first order, instead of being tiled — a lone idle
-  tile was previously the largest blank block on screen in testing. Only
-  the region's active (running/needs-you/question) sessions are packed into
-  tiles. Region-height
-  thresholds for the idle row: `h ≥ 3` rows shows tag row + tiles + idle
-  row; `h == 2` drops the idle row and folds its count into the tag row
-  instead; `h == 1` shows the tag row only. If a project has active
-  sessions but reserving a row for idle chips would leave no room for tiles,
-  the idle row is dropped first. When chips run out of room, the row stops
-  and shows `+N idle` in place of the remainder (space for this is always
-  reserved). As with project regions, adjacent tiles are snapped to share
-  exact edges — no gaps, no overlaps.
+  the per-region pass, R5) is the same urgency-based per-session weight
+  R5.1 sums for the whole region: `needs-you` (either sub-state — question
+  badge or plain, `visuals.md` R6.7) = 3, `running` = 2, plus 1 per subagent
+  the session has. (Status still governs color, glyph, and sort order per
+  `visuals.md` R6.1/R6.7 — never tile area.) Idle (out-of-window) sessions
+  are pulled out of the tile packing entirely and carry no weight of their
+  own — only the region's active (running/needs-you/question) sessions are
+  packed into tiles. Idle sessions no longer get individual on-screen
+  identification either: instead of a chip row of names, the region's
+  bottom row (when shown) carries a single bare `+N idle` count, reusing the
+  same small-chip mechanic R5.6 already uses for its own `+N sessions`
+  overflow chip, rather than any per-session geometry. Region-height
+  thresholds for the bottom row: `h ≥ 3` rows shows tag row + tiles + bottom
+  row; `h == 2` drops the bottom row (its count still surfaces via the tag
+  row's own state-count badges, R5.11); `h == 1` shows the tag row only. If
+  a project has active sessions but reserving a row for the idle count would
+  leave no room for tiles, the bottom row is dropped first. As with project
+  regions, adjacent tiles are snapped to share exact edges — no gaps, no
+  overlaps.
+
+  **Superseded in part:** the original wording of this
+  requirement gave idle its own weight of `1` (part of a table that also fed
+  R5.1's now-superseded flat weight) and rendered out-of-window sessions as
+  individual named chips — `○ nick · age`, e.g. `○ hawk-otter · 51m`, chips
+  separated by two spaces in most-recent-first order — on the region's
+  bottom row, falling back to `+N idle` only as an overflow once chips ran
+  out of horizontal room. Per-session idle identification on screen is
+  retired in favor of a bare count: the project owner tracks his own
+  sessions and widens the active window (`interactions.md` R8) when he wants
+  to check on older ones, and does not want individual idle names competing
+  for space at real usage scale (`overview.md` R5.8). This number (R5.2) is
+  kept; the idle-weight-of-1 and per-session-idle-chip clauses are void. The
+  active-session weight table's shape, the region-height thresholds, and the
+  tile-packing/snapping rules are otherwise unchanged — only idle's own
+  weight (now zero, not one) and its bottom-row presentation (a count, not
+  named chips) changed.
 
   Scenario: Given a project region 3 rows tall with one running session and
   one idle session, when the dashboard renders, then row 1 is the project
-  tag, row 2 is the running session's tile, and row 3 is the idle chip row
-  showing `○ <nick> · <age>` — the idle session is not a second tile
-  competing for tile area.
+  tag, row 2 is the running session's tile, and row 3 reads `+1 idle` — the
+  idle session is neither a second tile competing for tile area nor an
+  individually named chip.
+
+  Scenario: Given a project region with one `running` session and one
+  `needs-you` session of otherwise identical content demand (no subagents),
+  when the dashboard renders, then the `needs-you` tile gets a larger share
+  of the region's tile-packing weight than the `running` tile (3 vs 2) —
+  urgency, not just presence, now drives tile size, unlike the old flat
+  active-session weight of 2 shared by both.
 
 - **R5.3** — Tile content is a total function of the tile's own inner width
   (`wi` = outer tile width − 2, for the 1-column inset on each side) and
@@ -221,19 +274,52 @@ R6.4-R6.6).
      tail-kept
 
 - **R5.4** — The viewport is the full terminal frame area. The grid (both
-  squarify passes) is recomputed on every terminal resize event, and on
-  every redraw where a session's classification, project/tile membership,
-  weight, or ordering has actually changed — consistent with there being no
-  caching or positional-stability logic anywhere in this layout (see R5.7).
+  squarify passes) is recomputed on every terminal resize event, and
+  whenever a session crosses into or out of the active window `W`
+  (`overview.md` R3), or switches between `running` and `needs-you` (either
+  sub-state) — the two triggers that can change a project's or session's
+  weight (R5.1/R5.2). Nothing else forces a recompute: a new current-action
+  line, a subagent being added or removed, a `needs-you` session's wait
+  clock ticking up, or the question badge toggling on/off all redraw their
+  tile's own content on the next frame without moving or resizing any Rect.
   A larger terminal fits more project regions per row and more tiles per
   region, at proportionally larger sizes — it never just stretches existing
   boxes into empty space.
+
+  **Superseded in part:** the original wording described the
+  grid recomputing "on every redraw where a session's classification,
+  project/tile membership, weight, or ordering has actually changed...
+  consistent with there being no caching... anywhere in this layout." At
+  real usage scale most redraws (every ~250ms tick) had no such change at
+  all, yet nothing distinguished a truly-unchanged tick from one worth
+  recomputing, so the recompute cost was paid uniformly every tick in
+  practice. The trigger is now exactly the two explicit conditions above; a
+  weight change alone (e.g. a subagent count changing) is deliberately no
+  longer sufficient by itself to force a recompute — only the
+  window-crossing and running/needs-you triggers are. Reusing the previous
+  frame's geometry when neither trigger fired is now correct, cached
+  behavior, not the absence-of-caching this requirement originally
+  asserted; the "consistent with no caching... anywhere in this layout"
+  clause is void. R5.7's own no-positional-stability guarantee is
+  unaffected — this requirement only gates *when* a fresh squarify pass
+  runs, never *whether* its result is allowed to differ from the last one.
 
   Scenario: Given the dashboard running at 100 columns wide, when the
   terminal is resized to 180 columns, then the grid is recomputed
   immediately and project regions/tiles grow and rearrange to use the new
   width — the layout is never left stretched or re-drawn with dead space
   around unchanged-size boxes.
+
+  Scenario: Given a `running` session whose current-action text changes
+  three times in a row with nothing else changing anywhere, when the
+  dashboard redraws each time, then the tile's text updates every time but
+  its Rect — and every other tile's Rect — stays exactly the same, since
+  neither a window crossing nor a running/needs-you switch occurred.
+
+  Scenario: Given that same session's turn then ends (`running` ->
+  `needs-you`), when the dashboard redraws next, then the grid recomputes —
+  this transition is one of the two named triggers, even though nothing
+  about the terminal size changed.
 
 - **R5.5** — Minimum sizes: a session tile needs at least 12x5 cells outer
   (10x3 usable after its 1-cell inset). A project region needs at least

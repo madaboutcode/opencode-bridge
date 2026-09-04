@@ -33,6 +33,7 @@ use ratatui::layout::Rect;
 
 use crate::mosaic::squarify::{self, TreemapItem};
 use crate::mosaic::view::{ProjectView, SessionView, State};
+use crate::snapshot::SessionId;
 
 /// `layout.md` R5.5.
 pub const TILE_MIN_W: u16 = 12;
@@ -55,6 +56,17 @@ const SUMMARY_FLOOR_H: u16 = 2;
 
 /// `layout.md` R5.6.
 const MAX_TILES_PER_PROJECT: usize = 3;
+
+/// `layout.md` R5.1/R5.2's per-session base weight — urgency-based, not a
+/// flat count. Used both as a project's total region weight (summed over
+/// only its in-window sessions, R5.1) and as a session's own tile weight
+/// within its region (R5.2), plus `+1` per subagent in the tile case. Idle
+/// (out-of-window) sessions carry no entry here at all: they contribute
+/// zero weight and are never tiled (R5.2, R5.5's "no exemption" rule).
+/// Named constants, not inlined, so retuning the ratio later doesn't mean
+/// hunting for magic numbers.
+pub const WEIGHT_NEEDS_YOU: f64 = 3.0;
+pub const WEIGHT_RUNNING: f64 = 2.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RegionKind {
@@ -116,9 +128,13 @@ pub struct RegionContent {
     /// as a within-spec judgment call, not a literal rule).
     pub bottom_row_rect: Option<Rect>,
     pub tiles: Vec<TileLayout>,
-    /// idle sessions for this project, most-recent-first, whether or not
-    /// the bottom row is drawn (render decides how many chips fit).
-    pub idle_sessions_sorted: Vec<usize>,
+    /// Count of this project's out-of-window ("idle") sessions, whether or
+    /// not the bottom row is drawn. `layout.md` R5.2 (as revised): idle
+    /// sessions are no longer rendered as individual named chips — only
+    /// this bare count feeds the bottom row's `+N idle` text, reusing
+    /// R5.6's existing overflow-chip mechanic rather than per-session
+    /// geometry.
+    pub idle_count: usize,
     /// Active sessions beyond the R5.6 cap, in the same priority order
     /// they were dropped from — render turns this into the `+N sessions`
     /// chip text.
@@ -199,10 +215,34 @@ fn session_order_key(s: &SessionView) -> (u8, i64) {
     }
 }
 
-/// Content-demand weight (`visuals.md` R6.1: status is colour/glyph/order, never geometry).
+/// Content-demand weight (`visuals.md` R6.1: status is colour/glyph/order,
+/// never geometry) — urgency-based per `layout.md` R5.2: `needs-you` (either
+/// sub-state, question badge or plain) and `running` use the named base
+/// constants above; `idle` never reaches this function (idle sessions are
+/// filtered out before tile packing, and excluded from region weight by
+/// `project_weight` below) but is given an explicit `0.0` rather than an
+/// unreachable panic, matching R5.2's "idle sessions carry no weight" rule
+/// literally rather than relying on every caller to filter first.
 fn tile_weight(s: &SessionView) -> f64 {
-    let base = if s.state == State::Idle { 1.0 } else { 2.0 };
+    let base = match s.state {
+        State::Question | State::NeedsYou => WEIGHT_NEEDS_YOU,
+        State::Running => WEIGHT_RUNNING,
+        State::Idle => 0.0,
+    };
     base + s.subs.len() as f64
+}
+
+/// `layout.md` R5.1: a project's total region weight is the sum of its
+/// in-window sessions' own per-session weight (point 3/R5.2's table) —
+/// out-of-window ("idle") sessions contribute nothing, so a project with
+/// only idle sessions sums to exactly zero (matching `is_all_idle`'s
+/// region-exclusion check below).
+fn project_weight(p: &ProjectView) -> f64 {
+    p.sessions
+        .iter()
+        .filter(|s| s.state != State::Idle)
+        .map(tile_weight)
+        .sum()
 }
 
 fn inset(r: Rect) -> Rect {
@@ -223,7 +263,7 @@ pub fn layout_body(projects: &[ProjectView], body: Rect) -> BodyLayout {
         .iter()
         .enumerate()
         .filter(|(_, p)| !p.is_all_idle())
-        .map(|(idx, p)| (idx, p.sessions.len() as f64))
+        .map(|(idx, p)| (idx, project_weight(p)))
         .collect();
 
     if region_items.is_empty() {
@@ -332,14 +372,14 @@ fn build_region(
     };
 
     let project = &projects[project_idx];
-    let mut idle_sorted: Vec<usize> = project
+    // `layout.md` R5.2 (as revised): out-of-window sessions no longer get
+    // individual chips — only a bare count feeds the bottom row's `+N idle`
+    // text (point 5), reusing R5.6's overflow-chip mechanic.
+    let idle_count = project
         .sessions
         .iter()
-        .enumerate()
-        .filter(|(_, s)| s.state == State::Idle)
-        .map(|(i, _)| i)
-        .collect();
-    idle_sorted.sort_by_key(|&i| project.sessions[i].age_secs);
+        .filter(|s| s.state == State::Idle)
+        .count();
 
     if kind == RegionKind::Summary {
         return RegionContent {
@@ -347,7 +387,7 @@ fn build_region(
             tag_rect,
             bottom_row_rect: None,
             tiles: vec![],
-            idle_sessions_sorted: idle_sorted,
+            idle_count,
             overflow_count: 0,
         };
     }
@@ -366,7 +406,7 @@ fn build_region(
     active.truncate(MAX_TILES_PER_PROJECT);
 
     let ph = plate.height;
-    let bottom_row_needed = ph >= 3 && (!idle_sorted.is_empty() || overflow_count > 0);
+    let bottom_row_needed = ph >= 3 && (idle_count > 0 || overflow_count > 0);
     let tile_rows = if bottom_row_needed { ph - 2 } else { ph - 1 };
 
     let bottom_row_rect = if bottom_row_needed {
@@ -413,15 +453,99 @@ fn build_region(
         tag_rect,
         bottom_row_rect,
         tiles,
-        idle_sessions_sorted: idle_sorted,
+        idle_count,
         overflow_count,
+    }
+}
+
+/// One top-level session's coarse bucket for [`LayoutCache`]'s reflow gate
+/// (`layout.md` R5.4, as revised): whether it's mid-turn, waiting on the
+/// user, or outside the active window. `Question` and `NeedsYou` collapse to
+/// the same bucket deliberately — the question sub-badge is not one of the
+/// two named triggers, only the running<->needs-you transition is.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum ReflowBucket {
+    Running,
+    NeedsYou,
+    Idle,
+}
+
+fn reflow_bucket(state: State) -> ReflowBucket {
+    match state {
+        State::Running => ReflowBucket::Running,
+        State::Question | State::NeedsYou => ReflowBucket::NeedsYou,
+        State::Idle => ReflowBucket::Idle,
+    }
+}
+
+/// Ordered, not a set: `layout_body`'s output indexes into the exact
+/// `projects` slice/order it was called with (`project_idx`/`session_idx`),
+/// so reusing a cached [`BodyLayout`] is only safe when this exact ordered
+/// sequence matches what produced it. An unordered comparison could miss a
+/// reorder that isn't one of the two named triggers (e.g. the underlying
+/// session map's iteration order shifting for an unrelated reason) and hand
+/// back geometry that now points at the wrong session.
+fn reflow_signature(projects: &[ProjectView]) -> Vec<(SessionId, ReflowBucket)> {
+    projects
+        .iter()
+        .flat_map(|p| {
+            p.sessions
+                .iter()
+                .map(|s| (s.session_id.clone(), reflow_bucket(s.state)))
+        })
+        .collect()
+}
+
+struct CachedLayout {
+    signature: Vec<(SessionId, ReflowBucket)>,
+    body_rect: Rect,
+    body_layout: BodyLayout,
+}
+
+/// `layout.md` R5.4 (as revised, point 6): recompute the squarify geometry
+/// only when a session crosses into/out of the active window, or switches
+/// between `running` and `needs-you` — or the viewport resizes — not on
+/// every redraw. Tile *content* (elapsed time, current action, subagent
+/// text) still redraws fresh every frame regardless, since `render::draw`
+/// rebuilds `ProjectView`/`SessionView` from live data on every call; only
+/// the Rects this cache hands back can go a frame or more without a fresh
+/// `squarify` pass. Owned by `shell::app::App` across frames — every other
+/// caller (tests, the `mosaic_dump` example) passes a fresh, empty cache,
+/// which is exactly equivalent to the old always-recompute behavior.
+#[derive(Default)]
+pub struct LayoutCache {
+    entry: Option<CachedLayout>,
+}
+
+impl LayoutCache {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns the cached `BodyLayout` if the reflow signature and viewport
+    /// are unchanged since the last call, otherwise runs `layout_body` and
+    /// caches the fresh result for next time.
+    pub(crate) fn get_or_compute(&mut self, projects: &[ProjectView], body: Rect) -> BodyLayout {
+        let signature = reflow_signature(projects);
+        if let Some(cached) = &self.entry {
+            if cached.signature == signature && cached.body_rect == body {
+                return cached.body_layout.clone();
+            }
+        }
+        let fresh = layout_body(projects, body);
+        self.entry = Some(CachedLayout {
+            signature,
+            body_rect: body,
+            body_layout: fresh.clone(),
+        });
+        fresh
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::snapshot::{ProjectId, SessionId};
+    use crate::snapshot::ProjectId;
     use std::path::PathBuf;
 
     fn project_with(name: &str, sessions: Vec<SessionView>) -> ProjectView {
@@ -567,5 +691,168 @@ mod tests {
             accounted, 30,
             "every project is either a region or in the aggregate — none vanish"
         );
+    }
+
+    // --- point 2/3: in-window, urgency-based region weight ---
+
+    #[test]
+    fn region_weight_sums_urgency_based_per_session_weight() {
+        let sessions = vec![
+            session(State::Running, None),     // WEIGHT_RUNNING
+            session(State::NeedsYou, Some(5)), // WEIGHT_NEEDS_YOU
+        ];
+        let project = project_with("proj", sessions);
+        let body = Rect::new(0, 0, 80, 24);
+        let layout = layout_body(&[project], body);
+        assert_eq!(
+            layout.regions[0].region.weight,
+            WEIGHT_RUNNING + WEIGHT_NEEDS_YOU
+        );
+    }
+
+    #[test]
+    fn idle_sessions_contribute_zero_region_weight() {
+        // Old rule counted every session regardless of state; the point of
+        // this fix is that a project with a pile of idle history no longer
+        // outweighs one with the same live session count.
+        let sessions = vec![
+            session(State::Running, None),
+            session(State::Idle, None),
+            session(State::Idle, None),
+        ];
+        let project = project_with("proj", sessions);
+        let body = Rect::new(0, 0, 80, 24);
+        let layout = layout_body(&[project], body);
+        assert_eq!(
+            layout.regions[0].region.weight, WEIGHT_RUNNING,
+            "idle sessions must not inflate region weight"
+        );
+    }
+
+    #[test]
+    fn question_and_plain_needs_you_share_the_same_base_weight() {
+        let question = project_with("q", vec![session(State::Question, Some(1))]);
+        let plain = project_with("p", vec![session(State::NeedsYou, Some(1))]);
+        let body = Rect::new(0, 0, 80, 24);
+        let lq = layout_body(&[question], body);
+        let lp = layout_body(&[plain], body);
+        assert_eq!(lq.regions[0].region.weight, lp.regions[0].region.weight);
+        assert_eq!(lq.regions[0].region.weight, WEIGHT_NEEDS_YOU);
+    }
+
+    #[test]
+    fn subagents_still_add_to_a_sessions_own_tile_weight() {
+        let mut s = session(State::Running, None);
+        s.subs = vec![
+            crate::mosaic::view::SubagentView {
+                nick: "sub1".into(),
+                action: String::new(),
+                state: State::Running,
+            },
+            crate::mosaic::view::SubagentView {
+                nick: "sub2".into(),
+                action: String::new(),
+                state: State::Running,
+            },
+        ];
+        let project = project_with("proj", vec![s]);
+        let body = Rect::new(0, 0, 80, 24);
+        let layout = layout_body(&[project], body);
+        assert_eq!(
+            layout.regions[0].tiles[0].weight,
+            WEIGHT_RUNNING + 2.0,
+            "R5.2's +1-per-subagent rule is unchanged"
+        );
+    }
+
+    // --- point 6: reflow gating (`LayoutCache`) ---
+
+    #[test]
+    fn layout_cache_reuses_geometry_when_nothing_relevant_changed() {
+        let project = project_with("proj", vec![session(State::Running, None)]);
+        let body = Rect::new(0, 0, 80, 24);
+        let mut cache = LayoutCache::new();
+        let first = cache.get_or_compute(std::slice::from_ref(&project), body);
+        let second = cache.get_or_compute(&[project], body);
+        assert_eq!(first.regions[0].region.raw, second.regions[0].region.raw);
+    }
+
+    #[test]
+    fn layout_cache_ignores_a_subagent_count_change_alone() {
+        // Per point 6: a subagent appearing/disappearing is deliberately
+        // not one of the two named reflow triggers, so the cached tile
+        // weight is allowed to go stale until a real trigger fires.
+        let mut cache = LayoutCache::new();
+        let body = Rect::new(0, 0, 80, 24);
+        let bare = project_with("proj", vec![session(State::Running, None)]);
+        let first = cache.get_or_compute(&[bare], body);
+        let first_weight = first.regions[0].tiles[0].weight;
+
+        let mut with_sub = session(State::Running, None);
+        with_sub.subs = vec![crate::mosaic::view::SubagentView {
+            nick: "sub".into(),
+            action: String::new(),
+            state: State::Running,
+        }];
+        let project_with_sub = project_with("proj", vec![with_sub]);
+        let second = cache.get_or_compute(&[project_with_sub], body);
+        assert_eq!(
+            second.regions[0].tiles[0].weight, first_weight,
+            "subagent-only change must not force a relayout"
+        );
+    }
+
+    #[test]
+    fn layout_cache_recomputes_when_a_session_crosses_the_window_boundary() {
+        let mut cache = LayoutCache::new();
+        let body = Rect::new(0, 0, 80, 24);
+        let running = project_with("proj", vec![session(State::Running, None)]);
+        let first = cache.get_or_compute(&[running], body);
+        assert_eq!(first.regions.len(), 1);
+
+        let idle = project_with("proj", vec![session(State::Idle, None)]);
+        let second = cache.get_or_compute(&[idle], body);
+        assert!(
+            second.regions.is_empty(),
+            "a session leaving the active window must trigger a fresh layout"
+        );
+    }
+
+    #[test]
+    fn layout_cache_recomputes_when_running_toggles_to_needs_you() {
+        let mut cache = LayoutCache::new();
+        let body = Rect::new(0, 0, 80, 24);
+        let running = project_with("proj", vec![session(State::Running, None)]);
+        let first = cache.get_or_compute(&[running], body);
+        assert_eq!(first.regions[0].tiles[0].weight, WEIGHT_RUNNING);
+
+        let needs_you = project_with("proj", vec![session(State::NeedsYou, Some(1))]);
+        let second = cache.get_or_compute(&[needs_you], body);
+        assert_eq!(
+            second.regions[0].tiles[0].weight, WEIGHT_NEEDS_YOU,
+            "running<->needs-you must force a fresh layout with the updated weight"
+        );
+    }
+
+    #[test]
+    fn layout_cache_ignores_question_to_plain_needs_you_transition() {
+        // The question sub-badge is not a named trigger, and shares the
+        // same base weight, so a stale reuse here is harmless by design.
+        let mut cache = LayoutCache::new();
+        let body = Rect::new(0, 0, 80, 24);
+        let question = project_with("proj", vec![session(State::Question, Some(1))]);
+        let first = cache.get_or_compute(&[question], body);
+        let plain = project_with("proj", vec![session(State::NeedsYou, Some(1))]);
+        let second = cache.get_or_compute(&[plain], body);
+        assert_eq!(first.regions[0].region.raw, second.regions[0].region.raw);
+    }
+
+    #[test]
+    fn layout_cache_recomputes_on_resize() {
+        let mut cache = LayoutCache::new();
+        let project = project_with("proj", vec![session(State::Running, None)]);
+        let first = cache.get_or_compute(std::slice::from_ref(&project), Rect::new(0, 0, 80, 24));
+        let second = cache.get_or_compute(&[project], Rect::new(0, 0, 40, 12));
+        assert_ne!(first.regions[0].region.raw, second.regions[0].region.raw);
     }
 }
