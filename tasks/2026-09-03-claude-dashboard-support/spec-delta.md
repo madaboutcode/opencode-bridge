@@ -72,3 +72,16 @@ intent-driven (runtime wiring landed) not implementation-driven.
   remaining owned reference so the client spec agrees with the registered tree.
 
 No requirements were ADDED or REMOVED; no seventh spec file was created.
+
+## POST-T04 — 2026-09-04 (editorial correction, `04a7cf5`)
+
+- **R15** (claude.md): "128 characters" / "4096 characters" -> "128 UTF-8
+  bytes" / "4096 UTF-8 bytes" for `session_id` and `cwd` bounds.
+  reason: editorial correction, not a rule-value change. `hook.rs`'s
+  `valid_session_id`/`valid_cwd` used `value.len() <= MAX_SESSION_ID_LEN` /
+  `MAX_CWD_LEN` at the T04 gate commit `fd83209`, and still do — verified by
+  diff, the comparison is byte-for-byte identical before and after
+  `04a7cf5`. `str::len()` in Rust is always UTF-8 byte length, never a
+  character count, so the enforced bound never moved; only the spec's prose
+  and doc-comment wording were wrong and are now corrected to match what the
+  code always did. No T02 gate reopening required.

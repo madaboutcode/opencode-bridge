@@ -17,6 +17,15 @@ trigger.
   credentialed session and capture these traces through the full path.
 - **Promotion trigger:** T05 records authenticated ordered traces for a
   successful turn, tool activity, permission wait, and user exit.
+- **Evidence status (2026-09-04):** partially informed, not satisfied. A
+  post-T04 live run (`decisions.md`, "M3 cross-task sign-off") drove a real
+  authenticated interactive Claude Haiku session through the configured
+  hook -> Unix socket -> listener -> adapter path and observed exactly
+  `SessionStart` and `SessionEnd` (dashboard count moved 27/252 -> 28/253 on
+  start, back to 27/252 on `/exit`), because the test hook wired only those
+  two events plus `StopFailure`. `UserPromptSubmit`, `PreToolUse`,
+  `PostToolUse`, `PermissionRequest`, `Notification`, and `Stop`
+  (non-failure) remain unobserved. The promotion trigger above is not met.
 
 ## T01 - Startup gap and foreground/background discovery (S3)
 
@@ -45,6 +54,16 @@ trigger.
   async hook completion relative to CLI exit on a real session.
 - **Promotion trigger:** T05 records async-vs-sync hook timing on an
   authenticated successful session.
+- **Live finding (2026-09-04):** in the M3 live-validation run, a
+  `claude --print --no-session-persistence` probe with a deliberately
+  delayed synchronous `SessionEnd` command hook had that hook canceled by
+  Claude at process shutdown, with the exact message "SessionEnd hook [...]
+  failed: Hook cancelled." An interactive session with an idle pause then
+  `/exit` delivered `SessionEnd` reliably instead. This is one observation on
+  one CLI version (`2.1.259`), not async-viability evidence; it means T05
+  should not rely on delayed `--print`-mode hooks to observe exit-path
+  behavior and should use interactive idle-then-exit as the reliable probe
+  shape.
 
 ## T01 - Exit-path reliability and subagent identity (S4/S5)
 
@@ -60,3 +79,22 @@ trigger.
 - **Promotion trigger:** T05 records `SessionEnd` reliability across exit
   paths and verifies subagent parent identity (or confirms it is not
   representable).
+
+## Live finding - project identity resolution under a plain subdirectory
+
+- **Scenario:** the M3 live-validation run first tried a plain directory
+  under `./tmp` as the disposable Claude project cwd; it resolved to the
+  parent `opencode-mcp` git root instead of its own identity, because
+  project-identity resolution walks up to the nearest git root. A nested
+  disposable git repository under `./tmp` isolated the live-test project
+  correctly.
+- **Consequence:** none for T01c/T02/T03/T04 — no owned code changed and no
+  contract is violated. This is a disclosure gap: the behavior is real and
+  was not previously recorded in any spec, contract, or deferral, though it
+  is not one of the original S1-S7 items either.
+- **Deferral assumption:** none needed to close this item; it does not block
+  T05. It is recorded here so a future test author does not rediscover it.
+- **Promotion trigger:** not applicable. If T05 or a later task changes
+  project-identity resolution behavior (owned by T03's
+  `project_identity.rs`), that task's own contract governs the change, not
+  this entry.

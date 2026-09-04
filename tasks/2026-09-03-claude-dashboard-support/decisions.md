@@ -174,3 +174,188 @@ Terra reviewed the T04 design, implementation plan, and contract and sealed the 
 ## 2026-09-03 - T04 spec-validation baseline disposition
 
 The independent T04 spec validator found T04-modification validity clean and identified five strict-rubric exceptions that predate T04: four intentional adapter-internal contract items in `client.md` R6.4-R6.6/boundary prose, and the stale "five-file map" reference in `client.md` plus identical references in non-owned `layout.md`, `visuals.md`, and `interactions.md`. T04 corrects its owned `client.md` reference and records the change in `spec-delta.md`; it does not expand scope into the three non-owned sibling specs or rewrite the established adapter contract. The remaining baseline exceptions must be disclosed to Luna and the gate report, not called T04 regressions.
+
+## 2026-09-04 - Post-gate `04a7cf5` disposition: recorded acceptance
+
+Considered: reopen T02's gate for a full correction/review pass, or record
+acceptance of `04a7cf5` ("Fix Claude envelope overflow handling") as an
+in-bounds fix.
+Chosen: recorded acceptance, not a reopened gate. `04a7cf5` replaced an
+`assert!` panic in `ClaudeIpcEnvelope::to_wire()`/`serialize_envelope()` with
+a `Result`-returning drop path (`DropReason::OversizedEnvelope`,
+`DeliveryOutcome::EnvelopeTooLarge`). The panic was reachable: a `cwd` or
+`session_id` built from quote/backslash characters at its byte bound escapes
+to roughly double length in JSON, pushing the serialized envelope past
+`MAX_ENVELOPE_BYTES` (8 KiB) despite passing the individual field bounds —
+a crash of the hook helper process on a crafted value, reproduced by the new
+test `escaped_envelope_overflow_is_dropped_without_serialization_panic`.
+Why: T02's contract already required oversized values be dropped without
+affecting Claude; the panic violated that existing rule rather than the fix
+changing it. No rule value moved — 8 KiB holds, `MAX_HOOK_INPUT_BYTES` and
+`decode_envelope`'s `OutOfBounds` triggers are untouched. The new public
+surface (two enum variants, a `Result`-wrap on two functions) is
+compiler-enforced blast radius inside the ingress boundary, not a widened
+contract.
+Limitations: this was a real procedural break — every prior touch to
+`hook.rs` got a decision entry, a contract version bump, and a fresh review;
+this one got none, and went undisclosed until this entry. Three conditions
+remain open before T05 decomposition: (a) a helper-level test proving
+`EnvelopeTooLarge` exits 0 with no stdout — not yet proven at the
+`dashboard claude-hook` command boundary; (b) confirm the R15 spec change
+("128 characters" -> "128 UTF-8 bytes") is editorial, not a moved bound, and
+record it in `spec-delta.md`; (c) account for the 35->38 ingress / 19->20
+runtime test-count delta against gate reports (only one new test is named
+here).
+Reversal: if (a) surfaces a helper-level failure mode, or (b) finds the byte
+bound actually moved, reopen T02's gate rather than treating this as closed.
+
+## 2026-09-04 - Dirty worktree sweep into `bd35c5b`
+
+Considered: leave the pre-existing dirty worktree (icon-mode `main.rs` hunk,
+mosaic UI, OpenCode client, `tmp/` prototypes, historical T01/T01b/T02
+escalation and gate artifacts, handoff docs, layout/brainstorm/plan files)
+untouched and unstaged as prior gates required, or commit it as one sweep
+per the user's explicit "commit it all" direction.
+Chosen: `bd35c5b` ("Complete dashboard support work") committed that sweep.
+Verified by direct `git show --stat`/`--name-only`: it touched
+`crates/dashboard/src/main.rs` (23 lines — consistent with the pre-existing
+icon-mode hunk that T04's contract required be preserved verbatim and
+unstaged), `mosaic/{ladder,palette,render,view}.rs`, `opencode/mod.rs`,
+`opencode-client/src/opencode.rs`, `.gitignore`, and 70+ non-code files
+(`tmp/` prototypes, `docs/internal/*`, task plans, handoff docs, and
+historical T01/T01b/T02 escalation/gate reports for tasks that predate this
+run's committed history). It did not touch any file under
+`crates/dashboard/src/claude/` or `docs/specs/dashboard/`.
+Why: the delivery profile's "unrelated dirty worktree changes must remain
+untouched" constraint governs modification, not whether previously-approved
+dirty work may be committed once the user explicitly directs it. No Claude
+runtime/ingress/adapter source was touched, so the T04 owns-list boundary is
+intact; the icon-mode hunk landing in this commit — not `fd83209` — is
+consistent with the sealed Review Frame's requirement that it stay verbatim
+and outside T04's approved hunks.
+Limitations: this is a bookkeeping entry recording a fact that already
+happened, not a new authorization. Future tasks must not treat `bd35c5b` as
+license to bundle unrelated changes into a task commit without the same
+explicit direction.
+Reversal: none; this is historical record.
+
+## 2026-09-04 - Live-validation credential isolation amendment
+
+Considered: hold the live Claude Haiku validation to the original isolated
+`HOME`/`CLAUDE_CONFIG_DIR` requirement, or relax it because an isolated `HOME`
+has no credentials to authenticate with.
+Chosen: for the Session 3 live run, isolation is real credentials used
+opaquely — `--settings <temporary hooks JSON> --setting-sources project`
+against the real environment, with `~/.claude`, project `.claude`,
+credentials, and transcript JSONL never read or retained by the test
+harness. The user approved this relaxation explicitly on 2026-09-04.
+Why: the original decision's own reversal clause required explicit user
+approval to relax isolated `HOME`/`CLAUDE_CONFIG_DIR`, and the Session 3
+handoff recorded the relaxation in prose (Do-Not-Touch section) without an
+amending decision entry. The advisor withheld M3 sign-off partly on this gap
+and the run needs the wording T05 inherits on record here, not only in a
+handoff that gets rewritten each session.
+Limitations: this amendment covers only the Session 3 live run. Any T05
+authenticated evidence gate must restate or re-approve this posture for its
+own scope; it is not a blanket relaxation for all future Claude CLI testing.
+Reversal: none stated beyond re-approval per future scope; if a future run
+needs broader credential access, return to the user for explicit approval
+again.
+
+## 2026-09-04 - M3 cross-task sign-off
+
+Considered: hold M3 open pending disclosure of the three post-gate commits
+(`04a7cf5`, `bd35c5b`, `babf167`), or sign off once each is disclosed and
+dispositioned.
+Chosen: advisor (standing in for Terra in this session, per the advisor
+skill) signed M3, conditional on six items closing before T05 decomposition
+opens: (a) a helper-level test proving `EnvelopeTooLarge` exits 0/no stdout;
+(b) confirm the R15 chars->bytes change is editorial and record it in
+`spec-delta.md`; (c) account for the 35->38 ingress / 19->20 runtime test
+delta; (d) a correction note on `gates/T04-report.md` for the pre-`babf167`
+startup-ordering claim; (e) a `deferred.md` S2 evidence-status update
+recording the two live findings (`--print` `SessionEnd` cancellation at
+shutdown; `./tmp` cwd resolving to parent-repo project identity); (f) this
+log staying in chronological order (done via this entry's placement).
+Why: T02+T03+T04 form a coherent milestone — owns-lists disjoint and
+layered, only the three contracted events used, no lifecycle mapping in
+runtime code, T04's `main.rs` re-scope stayed inside its approved hunks, and
+`babf167` is startup composition the T04 Review Frame approved by name. All
+four T05 evidence deferrals (S1, S2, S3, S4/S5) remain open with their
+promotion triggers unmet; the live run only partially informs S2
+(`SessionStart`/`SessionEnd` observed; `UserPromptSubmit`, `PreToolUse`,
+`PostToolUse`, `Notification`, `Stop` were not, since the test hook wired
+only three events).
+Limitations: gated commits remain T01c `401887e`, T02 `aeb8317`, T03
+`e631129`, T04 decomposition `bdb8647`, T04 runtime `fd83209`. Post-gate
+commits accepted on this sign-off: `04a7cf5`, `bd35c5b`, `babf167`. T05
+decomposition should include an explicit rule for post-gate fixes to sealed
+files (decision entry naming the sealed contract touched, the rule it fixes
+against, and a test or stated reason none is needed) and at least one
+acceptance criterion satisfiable only by the built binary on the real path —
+the startup panic that `babf167` fixed passed 60+ unit/integration tests
+across three gates because none of them exercised the composed binary.
+Reversal: return to M3 escalation if items (a)-(e) surface a real defect
+rather than confirming the accepted disposition.
+
+## 2026-09-04 - Run-wide post-gate and gate-closure verification rules
+
+Considered: leave post-gate sealed-file fixes and gate-closure evidence to
+ad-hoc handling per task, or adopt explicit rules from the M3 review.
+Chosen: two rules apply to every remaining task in this run, starting with
+T05. (1) Any change to a sealed file outside its owning task's active gate
+requires a decision entry naming the sealed contract touched, the rule the
+change fixes against, and either a test or a stated reason none is needed —
+before or immediately after the change, not discovered later by a milestone
+review. (2) Every gate closure names the artifact it claims and the exact
+command that confirms it exists/passes; a report of work done is not
+sufficient on its own.
+Why: `04a7cf5` was a substantively sound fix that went undisclosed for a full
+milestone because no rule required disclosure of post-gate sealed-file
+changes. Separately, during M3 closeout a delegated coder agent reported
+editing `spec-delta.md` when `git status` showed no such change — caught
+only because the conductor checked directly rather than trusting the
+report. This run's existing gate closures (Luna's CLEAN verdicts, Clerk's
+spec validations) are not known to be false, but nothing in the process to
+date required independent confirmation that a reported artifact exists.
+Limitations: rule (2) does not retroactively re-verify T01c-T04's gates; it
+governs T05 forward. Rule (1) does not require reopening a sealed gate for
+every sealed-file touch — a stated reason "no test needed" is a valid
+disposition, not an automatic escalation.
+Reversal: none; both rules stand unless a future milestone review finds
+them producing false-positive escalations disproportionate to the risk they
+catch.
+
+## 2026-09-04 - T05 decomposition and seal
+
+Considered: split T05 into separate tasks per evidence area (S1-S6), or
+keep it as one task staged evidence-first, implementation-only-where-
+justified.
+Chosen: one task. `contracts/T05-claude-release-verification.md` v2, sealed
+by the advisor. S1-S5 evidence areas plus S6 closure-by-citation, a named
+failure branch per the delivery profile's existing blocking rule, release
+regression/rollback, and final release sign-off. `state.rs` is owned
+outright for staleness/subagent-identity logic (T05's planned deliverable
+from T01's original deferral, not a defect discovery); `hook.rs`/`wire.rs`/
+`listener.rs`/`command.rs`/`mod.rs` are conditional access under the
+2026-09-04 post-gate-fix rule, bounded to fixing a defect against a rule
+those contracts already state — any rule change is a contract amendment
+requiring advisor approval before implementation, not a decision entry
+after.
+Why: S1-S5 are largely surfaced by the same authenticated session runs
+rather than needing separate infrastructure, so splitting would multiply
+gate overhead without proportional benefit. The advisor withheld seal on v1
+for four reasons, all corrected in v2: a `state.rs` ownership contradiction
+between the owns-list and two evidence bullets; conditional sealed-file
+access needed a kind-bound (defect-against-existing-rule only, not any
+change under process compliance); the release gate had no failure branch,
+so evidence going the wrong way had no path except forcing a "done"
+verdict; and S6 (delivery profile's socket/IPC evidence item) was
+unaccounted for anywhere in the contract.
+Limitations: the seal is conditional — if S6 turns out not to be closed by
+the cited T02/T04 gate artifacts, that is a decomposition question
+returning to the advisor before implementation, not something T05 resolves
+unilaterally. Implementation has not started against this contract.
+Reversal: return to the advisor if evidence during T05 forces a rule change
+in a sealed file rather than a defect fix, or if S6's citation-closure
+turns out incomplete.

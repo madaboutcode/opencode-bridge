@@ -2,7 +2,7 @@
 
 ## Status
 
-Scoping signed off by Terra on 2026-09-03; M1/M2 task gates are closed through committed T03; T04 contract v1 is sealed and ready for implementation.
+Scoping signed off by Terra on 2026-09-03; M1/M2 task gates are closed through committed T03; T04 is implemented, committed (`fd83209`), and gated M3 cross-task sign-off (advisor, standing in for Terra, 2026-09-04) with three post-gate commits (`04a7cf5`, `bd35c5b`, `babf167`) disclosed and accepted. T05 contract v2 is sealed and ready for implementation; see `contracts/T05-claude-release-verification.md` and `decisions.md`'s "T05 decomposition and seal" entry.
 Source plan: `tasks/2026-09-03-claude-dashboard-support.plan.md`.
 
 ## Boundaries
@@ -114,10 +114,12 @@ Luna High is never the implementer. The reviewer may write tests that expose
   spec validation, and one fresh Luna verification. `main.rs` is approved only
   for isolated T04 hunks; its unrelated icon-mode changes remain untouched.
 
-Planned later tasks, to be decomposed after each milestone review:
+### M3 - runtime and release verification
 
-- T03: Claude adapter and feature verification through IPC.
-- T04: runtime wiring, hook command, and user documentation.
-- T05: release regression, rollback verification, and the authenticated real
-  Claude CLI flow through hook, helper, Unix socket, adapter, and dashboard
-  event path.
+- T05: Claude authenticated release verification. Contract v2 sealed by the
+  advisor 2026-09-04 — see `contracts/T05-claude-release-verification.md`.
+  Closes S1-S5 with authenticated evidence, closes S6 by citing T02/T04
+  artifacts, finalizes the staleness policy and subagent-identity
+  representation only where evidence justifies a `state.rs` change, and
+  runs the release regression/rollback gate with an explicit failure
+  branch. Not yet implemented.

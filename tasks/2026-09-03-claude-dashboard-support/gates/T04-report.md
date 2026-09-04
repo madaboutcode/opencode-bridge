@@ -68,6 +68,20 @@ T04 commit. T04 changes are limited to the approved dispatch, startup,
 shutdown, and helper additions. Existing unrelated mosaic, OpenCode, and
 documentation changes remain untouched.
 
+**Post-gate correction (2026-09-04):** the Runtime line above — "normal
+startup resolves T02's user-scoped socket, binds before adapters" — was not
+true of the binary this gate accepted. `main.rs` called `UnixListener::bind`
+before entering the Tokio runtime, so normal (non-`claude-hook`) startup
+panicked with "there is no reactor running, must be called from the context
+of a Tokio 1.x runtime." This was not caught by any test in Verification
+above, because all of them exercised library/integration code paths, not the
+composed binary on ordinary startup. A real interactive Claude session run
+against the built binary in commit `30baf60`'s validation surfaced the
+panic; the fix — entering the runtime around the bind — is committed as
+`babf167` and reviewed in `decisions.md`'s 2026-09-04 M3 sign-off entry. The
+fix is narrow startup composition inside T04's approved `main.rs` hunks, not
+a boundary or ownership change.
+
 **Residuals:** the path-based Unix cleanup has the unavoidable race between
 identity verification and `remove_file`; device/inode and socket-type checks
 provide the strongest protection available under the sealed contract's
