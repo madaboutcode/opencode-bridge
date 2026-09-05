@@ -52,13 +52,32 @@
 //! assumption breaks if a future Claude Code version adds `agent_id` to
 //! `PermissionRequest`/`Elicitation`.
 //!
-//! `Notification` is a deliberate simplification: it only refreshes
-//! `last_updated` (the snapshot's `last_updated` is always the incoming
-//! event's own receipt time) and leaves attention/content untouched — its
-//! sub-types have different meanings this dashboard does not attempt to map,
-//! even though R13 places it in the "does it need me" bucket for allowlist
-//! purposes. `wire_title` and `files_touched` have no evidence-backed source
-//! field (R14) and stay `None`/empty for every event.
+//! **`Notification` attention mapping.** `notification_type` (`Option<
+//! String>`) drives attention for the two sub-types Claude documents as
+//! attention-worthy (R13): `Some("idle_prompt")` maps to `NeedsYou {
+//! question: false, .. }` and also clears `turn_started` to `None`,
+//! mirroring `Stop`'s own "turn is over" bookkeeping so a later tool event
+//! doesn't resurrect a stale start time. `Some("permission_prompt")` or
+//! `Some("agent_needs_input")` map to `NeedsYou { question: true, .. }` but
+//! leave `turn_started` untouched — unlike `idle_prompt`, the turn may
+//! still be running with a subprocess waiting on the user. Any other value
+//! (`None`, or a sub-type not in this list) changes nothing but
+//! `last_updated`. A `Notification`-driven `NeedsYou` has no dedicated
+//! clearing event — it carries no `tool_use_id` to correlate a clear
+//! against, unlike `PermissionRequest`/`Elicitation` — so it relies on the
+//! next event that unconditionally sets attention (any `UserPromptSubmit`
+//! or tool event); this is intentional, not a gap to fix here. `wire_title`
+//! and `files_touched` have no evidence-backed source field (R14) and stay
+//! `None`/empty for every event.
+//!
+//! **`Stop` attention mapping.** A subagent `Stop` (`agent_id: Some(_)`)
+//! sets `Idle`, not `NeedsYou`: a finished subagent does not need anyone —
+//! it is superseded by its own `SubagentStop` tombstone shortly after, and
+//! until then should read as done, not blocking. The top-level case
+//! (`agent_id: None`) sets `NeedsYou { question: looks_like_question(
+//! last_assistant_message), .. }` — Claude's `Stop` carries only text, the
+//! same as OpenCode's own turn-end signal, so the same shared, text-based
+//! heuristic (`crate::text::looks_like_question`) applies to both.
 //!
 //! CONTRACT: ClaudeLifecycleState (`docs/specs/dashboard/claude.md`
 //! R13-R14; `crates/dashboard/src/claude/DESIGN.md`)
@@ -101,6 +120,7 @@ use std::path::Path;
 use crate::adapter::SessionEvent;
 use crate::project_identity::{DirResolver, GitDirResolver, ProjectIdentityCache};
 use crate::snapshot::{AttentionState, ProjectId, SessionId, SessionSnapshot, Timestamp};
+use crate::text::looks_like_question;
 
 use super::hook::{ClaudeEvent, ClaudeIpcEnvelope};
 use super::KIND;
@@ -284,11 +304,34 @@ impl<R: DirResolver> ClaudeState<R> {
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
                 snapshot_event(&top_id, tracked, receipt)
             }
-            ClaudeEvent::Notification { .. } => {
-                // Deliberate simplification (module doc comment): only
-                // last_updated (via `receipt` below) advances.
+            ClaudeEvent::Notification {
+                notification_type, ..
+            } => {
+                // See the module doc comment's "Notification attention
+                // mapping" for the full rationale, incl. why idle_prompt
+                // alone clears turn_started.
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
+                match notification_type.as_deref() {
+                    Some("idle_prompt") => {
+                        tracked.attention = AttentionState::NeedsYou {
+                            question: false,
+                            turn_ended: receipt,
+                        };
+                        tracked.turn_started = None;
+                    }
+                    Some("permission_prompt") | Some("agent_needs_input") => {
+                        tracked.attention = AttentionState::NeedsYou {
+                            question: true,
+                            turn_ended: receipt,
+                        };
+                    }
+                    _ => {
+                        // Any other value (None, or an unrecognized
+                        // sub-type): only last_updated (via `receipt`
+                        // below) advances.
+                    }
+                }
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::Stop {
@@ -300,9 +343,18 @@ impl<R: DirResolver> ClaudeState<R> {
                 let parent = parent_of(&top_id, agent_id.as_deref());
                 self.ensure_tracked(&target, cwd, receipt, parent);
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
-                tracked.attention = AttentionState::NeedsYou {
-                    question: false,
-                    turn_ended: receipt,
+                // See the module doc comment's "Stop attention mapping": a
+                // subagent Stop settles to Idle (superseded by its own
+                // SubagentStop shortly after), only the top-level case gets
+                // the question-glyph heuristic.
+                tracked.attention = match agent_id {
+                    Some(_) => AttentionState::Idle {
+                        last_update: receipt,
+                    },
+                    None => AttentionState::NeedsYou {
+                        question: looks_like_question(last_assistant_message),
+                        turn_ended: receipt,
+                    },
                 };
                 tracked.final_assistant_text = Some(last_assistant_message.clone());
                 tracked.turn_started = None;
@@ -579,9 +631,19 @@ mod tests {
     }
 
     fn stop(session: &str, cwd: &str, agent_id: Option<&str>, received_at: u64) -> ClaudeIpcEnvelope {
+        stop_with_message(session, cwd, "done", agent_id, received_at)
+    }
+
+    fn stop_with_message(
+        session: &str,
+        cwd: &str,
+        last_assistant_message: &str,
+        agent_id: Option<&str>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
         envelope(
             ClaudeEvent::Stop {
-                last_assistant_message: "done".to_string(),
+                last_assistant_message: last_assistant_message.to_string(),
                 agent_id: agent_id.map(str::to_string),
                 agent_type: None,
             },
@@ -695,9 +757,18 @@ mod tests {
     }
 
     fn notification(session: &str, cwd: &str, received_at: u64) -> ClaudeIpcEnvelope {
+        notification_typed(session, cwd, None, received_at)
+    }
+
+    fn notification_typed(
+        session: &str,
+        cwd: &str,
+        notification_type: Option<&str>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
         envelope(
             ClaudeEvent::Notification {
-                notification_type: None,
+                notification_type: notification_type.map(str::to_string),
                 notification_message: "idle".to_string(),
             },
             session,
@@ -1177,6 +1248,116 @@ mod tests {
         assert_eq!(after.last_updated, ts(R3), "only last_updated advances");
     }
 
+    // --- Item 1: Notification's notification_type drives attention ---
+
+    #[test]
+    fn notification_idle_prompt_needs_you_and_clears_turn_started() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        state.process(&pre_tool("sess-1", "/work/proj", "Edit", None, R2));
+
+        let notified = single_snapshot(state.process(&notification_typed(
+            "sess-1",
+            "/work/proj",
+            Some("idle_prompt"),
+            R3,
+        )));
+        assert_eq!(
+            notified.attention,
+            AttentionState::NeedsYou {
+                question: false,
+                turn_ended: ts(R3)
+            }
+        );
+
+        // turn_started was cleared: a later tool event (no new
+        // UserPromptSubmit) falls back to its own receipt, exactly like
+        // Stop's own bookkeeping.
+        let resumed = single_snapshot(state.process(&pre_tool(
+            "sess-1",
+            "/work/proj",
+            "Bash",
+            None,
+            R4,
+        )));
+        assert_eq!(
+            resumed.attention,
+            AttentionState::Running {
+                turn_started: ts(R4)
+            },
+            "idle_prompt clears turn_started so a later tool event doesn't \
+             resurrect the stale start time"
+        );
+    }
+
+    #[test]
+    fn notification_permission_prompt_and_agent_needs_input_are_question_and_keep_turn_started() {
+        for sub_type in ["permission_prompt", "agent_needs_input"] {
+            let mut state = ClaudeState::new(IdentityResolver);
+            state.process(&prompt("sess-1", "/work/proj", "go", R1));
+            state.process(&pre_tool("sess-1", "/work/proj", "Edit", None, R2));
+
+            let notified = single_snapshot(state.process(&notification_typed(
+                "sess-1",
+                "/work/proj",
+                Some(sub_type),
+                R3,
+            )));
+            assert_eq!(
+                notified.attention,
+                AttentionState::NeedsYou {
+                    question: true,
+                    turn_ended: ts(R3)
+                },
+                "notification_type {sub_type:?} must set question: true"
+            );
+
+            // Unlike idle_prompt, turn_started is untouched — the turn may
+            // still be running with a subprocess waiting on the user. A
+            // later tool event reuses the original turn start (R1), not
+            // its own receipt.
+            let resumed = single_snapshot(state.process(&pre_tool(
+                "sess-1",
+                "/work/proj",
+                "Bash",
+                None,
+                R4,
+            )));
+            assert_eq!(
+                resumed.attention,
+                AttentionState::Running {
+                    turn_started: ts(R1)
+                },
+                "notification_type {sub_type:?} must not clear turn_started"
+            );
+        }
+    }
+
+    #[test]
+    fn notification_unrecognized_type_leaves_attention_unchanged() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let before = single_snapshot(state.process(&pre_tool(
+            "sess-1",
+            "/work/proj",
+            "Edit",
+            None,
+            R2,
+        )));
+
+        let after = single_snapshot(state.process(&notification_typed(
+            "sess-1",
+            "/work/proj",
+            Some("some_future_sub_type"),
+            R3,
+        )));
+        assert_eq!(
+            after.attention, before.attention,
+            "an unrecognized notification_type changes nothing but last_updated"
+        );
+        assert_eq!(after.last_updated, ts(R3));
+    }
+
     #[test]
     fn stop_ends_the_turn_and_clears_turn_started() {
         let mut state = ClaudeState::new(IdentityResolver);
@@ -1206,6 +1387,29 @@ mod tests {
             AttentionState::Running {
                 turn_started: ts(R4)
             }
+        );
+    }
+
+    // --- Item 3: top-level Stop reuses the shared question heuristic ---
+
+    #[test]
+    fn top_level_stop_ending_in_a_question_sets_question_true() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let stopped = single_snapshot(state.process(&stop_with_message(
+            "sess-1",
+            "/work/proj",
+            "Which file would you like me to delete?",
+            None,
+            R2,
+        )));
+        assert_eq!(
+            stopped.attention,
+            AttentionState::NeedsYou {
+                question: true,
+                turn_ended: ts(R2)
+            },
+            "a top-level Stop whose text looks like a question sets question: true"
         );
     }
 
@@ -1335,12 +1539,38 @@ mod tests {
         assert_eq!(snapshot.session_id.native_id, "top:agent-1");
         assert_eq!(
             snapshot.attention,
-            AttentionState::NeedsYou {
-                question: false,
-                turn_ended: ts(R3)
-            }
+            AttentionState::Idle {
+                last_update: ts(R3)
+            },
+            "a finished subagent reads as done, not as blocking (item 2)"
         );
         assert_eq!(snapshot.final_assistant_text.as_deref(), Some("done"));
+    }
+
+    #[test]
+    fn subagent_stop_ending_in_a_question_still_goes_idle_not_needs_you() {
+        // Item 3's question heuristic must not leak into item 2's path: a
+        // subagent Stop always settles to Idle, even when its text would
+        // trip looks_like_question for a top-level Stop.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&start("top", "/work/proj", R1));
+        state.process(&subagent_start("top", "/work/proj", "agent-1", R2));
+        let snapshot = single_snapshot(state.process(&stop_with_message(
+            "top",
+            "/work/proj",
+            "Which approach should I take?",
+            Some("agent-1"),
+            R3,
+        )));
+        assert_eq!(snapshot.session_id.native_id, "top:agent-1");
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::Idle {
+                last_update: ts(R3)
+            },
+            "a subagent Stop is Idle regardless of whether its text looks \
+             like a question"
+        );
     }
 
     #[test]

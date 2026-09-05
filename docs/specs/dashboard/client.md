@@ -66,9 +66,11 @@ final on-screen form.
   Everything harness-specific stays inside the adapter and never crosses
   into the core. This explicitly includes:
   - the needs-you/question-detection heuristic (owned by `visuals.md` R6.7)
-    — opencode-specific guesswork with no real wire signal; a harness with
-    an actual "waiting on you" signal reports it directly, not re-derived
-    from text.
+    — a shared, text-based heuristic any harness with no real wire signal
+    for "waiting on you" falls back to (opencode's `Stop` and Claude's
+    `Stop` both re-derive it the same way, from the harness's own final
+    text); a harness with an actual "waiting on you" signal reports it
+    directly, not re-derived from text.
   - the call_id → name tool correlation (R6.4, this file).
   - tool-name-to-action-line rendering (R6.5/R6.6, this file).
 
