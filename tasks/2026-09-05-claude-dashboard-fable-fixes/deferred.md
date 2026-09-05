@@ -140,3 +140,25 @@ is next touched, especially during M2 turn-state derivation.
 
 **Source** — M1 fresh-eyes re-review and advisor milestone sign-off
 (2026-09-05).
+
+## Claude DESIGN.md still describes stored attention
+
+**Scenario** — M2 replaced the separately stored `AttentionState` in
+`ClaudeTrackedSession` with `turn_started`, `turn_ended`, `idle_since`, and
+pending correlation facts, but `crates/dashboard/src/claude/DESIGN.md` still
+describes the old `attention` field.
+
+**Consequence** — The implementation design note can mislead a future
+maintainer about the state model, but it does not affect runtime behavior,
+wire compatibility, or the M2 contract.
+
+**Deferral assumption** — `DESIGN.md` was outside T04's sealed ownership
+surface; changing it inside the implementation commit would have widened a
+passed task's scope. The M2 advisor classified this as bounded documentation
+drift, not a release blocker.
+
+**Promotion trigger** — Correct the state-model paragraph before or alongside
+the next live Claude hook-proof phase, without changing the M2 implementation
+unless the documentation exposes a real behavioral mismatch.
+
+**Source** — M2 fan-in review and advisor milestone sign-off (2026-09-05).

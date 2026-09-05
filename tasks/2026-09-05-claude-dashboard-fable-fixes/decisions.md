@@ -238,3 +238,104 @@ the underlying representation.
 
 **Reversal** — if a retained deferral's assumption fails during M2 or live
 proof, promote it to a scoped task and reopen the affected milestone decision.
+
+## 2026-09-05 — M2 execution topology override
+
+**Considered** — whether to abandon M2 or resume from a shallower session after
+the runner role could not spawn its required implementer and reviewer at the
+current nested-agent depth.
+
+**Chosen** — per the user's explicit instruction, the conductor acts as the
+runner for M2: launch direct `luna` implementers, then launch fresh independent
+reviewers (`luna-high` for T04 and `luna` for T05), and author the gate reports
+and task commits after review.
+
+**Why** — the sealed contracts remain valid and the topology failure is an
+execution limitation, not a product or decomposition failure. Direct spawning
+preserves independent review without changing the approved release posture.
+
+**Limitations** — the conductor now carries runner bookkeeping for T04/T05;
+review independence and exact owns-list staging are non-negotiable evidence
+requirements.
+
+**Reversal** — if a direct reviewer cannot run independently or a task needs
+an open-ended third pass, stop and escalate rather than weakening the gate.
+
+## 2026-09-05 — Advisor adjudication: M2 contract escalations
+
+**Considered** — whether to weaken M1's byte-for-byte Idle preservation to fit
+T04's three-fact projection, and whether to alter serde_json configuration to
+make the sealed T05 recursion claim (128 accepted, 129 rejected) true.
+
+**Chosen** — preserve the shipped behavior. Amend T04 with one private
+`idle_since: Option<Timestamp>` fact, initialized or updated when a session
+enters Idle and preserved on Resume/Compact and no-op paths. Amend T05 to
+document the locked dependency's observed default boundary: 127 nested
+containers are accepted and 128 are rejected as category-only Malformed.
+Leave serde_json configuration unchanged.
+
+**Why** — `idle_since` removes the duplicated public `AttentionState` without
+discarding an independently meaningful M1 timestamp. Relaxing preservation
+would be a behavior regression. The T05 boundary is dependency behavior that
+the existing implementation intentionally preserves; forcing 128 acceptance
+would change parser policy.
+
+**Limitations** — the amended T04 fact set is four facts rather than three;
+the amended T05 contract documents the actual serde_json boundary rather than
+the previously misstated nominal limit. Both amendments require fresh bound
+review and updated executable coverage before task gates can pass.
+
+**Reversal** — if a future serde_json upgrade changes the default boundary,
+re-run the boundary test and revisit the T05 contract. If `idle_since` proves
+to alter any non-Idle M1 snapshot or lifecycle behavior, stop and reopen T04
+with the advisor rather than restoring a mutable public attention field.
+
+## 2026-09-05 — Advisor adjudication: retain tool fallback basis
+
+**Considered** — whether a tool event with no retained turn start should keep
+its receipt only as an event-local Running projection, add another fallback
+fact, or store the receipt in the existing `turn_started` fact.
+
+**Chosen** — when a tool event enters Running with no retained basis, set
+`turn_started = receipt`. A first tool event, followed by tracked Resume or
+Compact, therefore preserves the same Running timestamp. Existing start bases
+remain unchanged.
+
+**Why** — this reuses the authoritative fact already required for Running,
+preserves M1 compaction behavior, and avoids recreating the duplicated state
+T04 removes. The existing test claiming the fallback must not be retained
+encoded the wrong structural interpretation and will be replaced.
+
+**Limitations** — tool receipt fallback becomes a retained current-turn basis
+until a specified clearing event removes it; this does not alter the emitted
+snapshot for the fallback event or ordinary notification/stop behavior.
+
+**Reversal** — if a later event matrix demonstrates that retaining the basis
+changes a shipped non-compaction snapshot, reopen T04 with the advisor rather
+than adding a second fallback fact or weakening preservation.
+
+## 2026-09-05 — M2 milestone sign-off
+
+**Considered** — whether T04 v4, T05 v3, their follow-up commit, final fresh
+reviews, fan-in review, and verification satisfy the M2 release bar, given the
+stale Claude module design comment and the explicitly deferred live proof.
+
+**Chosen** — advisor signed off M2. Commits `b88e56e`, `74ecc97`, and
+`71841e5` are accepted; T04 and T05 final reviews and M2 fan-in are PASS, with
+376 dashboard tests, clean clippy, clean formatting, and clean scoped diffs.
+The stale `crates/dashboard/src/claude/DESIGN.md` description is a bounded
+documentation follow-up outside T04 ownership, not a runtime or contract
+blocker. Live hook proof remains deferred to the next phase.
+
+**Why** — the structural rewrites preserve the supported workflows and wire
+contract, and the residuals are already bounded with explicit promotion
+conditions. Reopening a passed task for an out-of-surface comment would mix
+documentation cleanup into an otherwise isolated implementation milestone.
+
+**Limitations** — the design comment must be corrected before or alongside
+the live-proof phase; live proof itself has not been run and no real Claude
+settings were touched.
+
+**Reversal** — if live proof exposes behavior inconsistent with the synthetic
+matrix, or if the design documentation is used to make an incompatible state
+change before correction, reopen the affected milestone decision.
