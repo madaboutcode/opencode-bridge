@@ -69,4 +69,32 @@ mod tests {
         assert!(!looks_like_question(""));
         assert!(!looks_like_question("   "));
     }
+
+    // `collapse_newlines`/`basename` previously had only indirect coverage
+    // through `opencode/action_line.rs`'s tests (deferred.md, T00 reviewer
+    // pass 1: "T02 should add direct unit tests ... once Claude's rendering
+    // path depends on them"). T02's `claude/action_line.rs` now does.
+
+    #[test]
+    fn collapse_newlines_joins_lines_with_a_middle_dot() {
+        assert_eq!(
+            collapse_newlines("echo hi\necho there\necho done"),
+            "echo hi · echo there · echo done"
+        );
+    }
+
+    #[test]
+    fn collapse_newlines_is_a_no_op_on_single_line_text() {
+        assert_eq!(collapse_newlines("echo hi"), "echo hi");
+    }
+
+    #[test]
+    fn basename_returns_the_final_path_component() {
+        assert_eq!(basename("/work/proj/src/lib.rs"), "lib.rs");
+    }
+
+    #[test]
+    fn basename_of_a_bare_filename_is_itself() {
+        assert_eq!(basename("lib.rs"), "lib.rs");
+    }
 }

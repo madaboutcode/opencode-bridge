@@ -128,3 +128,40 @@ with no code or behavior implication.
 only needs revisiting if a third heuristic caller is added with a real
 wire signal (at which point the forward-looking clause, not this one,
 would need updating).
+
+## 2026-09-05 — T02 item 12: `layout.md` R5.3 Question block, spec-delta
+
+**Considered** — T02 (finding 4, items 7-8) makes a Question tile's content
+also come from a pending `PermissionRequest`'s synthesized `"allow: X"`
+text or an `Elicitation`'s raw request text, not only from a turn-ending
+`Stop`'s assistant text. `layout.md` R5.3's Question block, item 3, said
+the elastic block holds "the session's final assistant text" — true only
+for the `Stop` path, now false for the other two.
+
+**Chosen (spec-delta, MODIFIED)** — **R5.3** (`layout.md`, Question block,
+item 3): reworded the one clause describing *what* the block contains,
+from "the session's final assistant text" to "what is being asked: the
+assistant's own final text when the turn ended by asking a question
+(`Stop`), or, for a pending permission or elicitation request, a
+synthesized "allow: X" string or the elicitation's own request text (see
+`claude.md` R14)." Every structural detail in that item — elastic,
+wrapped, tail-kept with `⋯` on overflow — is unchanged. No new `R` number
+(this corrects R5.3 in place, per the file's own numbering convention);
+no `[REVIEW]` marker (the correction is settled, not open).
+Reason: T02's own item 7/8 acceptance criteria (this task's contract,
+`tasks/2026-09-05-claude-dashboard-fable-fixes/contracts/
+T02-tile-content-correctness.md`).
+
+**Why** — Same class of correction as the earlier `client.md` R1.3 entry
+above: code now does something the spec text explicitly said it didn't.
+Rewording in place (not adding a new requirement) matches this file's
+convention that a corrected requirement keeps its number and states the
+correction inline.
+
+**Limitations** — none identified; this is a documentation correction with
+no code or behavior implication of its own (the behavior it describes was
+already implemented by T02's items 6-9).
+
+**Reversal** — none anticipated; would need revisiting only if a future
+path sets `final_assistant_text` for a reason not covered by "turn ended
+with a question" or "permission/elicitation pending."

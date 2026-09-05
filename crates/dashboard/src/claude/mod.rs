@@ -44,6 +44,7 @@
 //!     authenticated completeness claims, and never reads transcripts or
 //!     touches Claude configuration.
 
+mod action_line;
 pub mod command;
 pub mod hook;
 pub mod listener;

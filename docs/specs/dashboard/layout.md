@@ -245,7 +245,10 @@ R6.4-R6.6).
   **Question**
   1. `glyph nick`, bold
   2. the question badge
-  3. (blank row +) **elastic** — the session's final assistant text,
+  3. (blank row +) **elastic** — what is being asked: the assistant's own
+     final text when the turn ended by asking a question (`Stop`), or, for a
+     pending permission or elicitation request, a synthesized "allow: X"
+     string or the elicitation's own request text (see `claude.md` R14) —
      wrapped. If it doesn't fit in the rows available, the **tail** is kept
      (the question is at the end of the text) and the first shown row is
      replaced with `⋯`.

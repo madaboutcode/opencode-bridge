@@ -52,6 +52,15 @@ in `text.rs`'s module doc) rather than leaving it implicit.
 
 **Source** — T00 reviewer, pass 1 (2026-09-05).
 
+## T02 closes direct helper-test deferral
+
+**Disposition** — Closed. T02's Claude action-line module now depends directly
+on `collapse_newlines` and `basename`, and `crates/dashboard/src/text.rs`
+contains direct unit tests for both helpers (including multiline and bare-path
+cases). The coverage no longer depends only on OpenCode's action-line tests.
+
+**Source** — T02 runner triage (2026-09-05).
+
 ## `collapse_newlines`/`basename` have no direct unit tests
 
 **Scenario** — T00 moved `collapse_newlines` and `basename` from

@@ -37,9 +37,15 @@
 //! check, never after, so it can never be "the next" event. Clearing sets
 //! attention back to `Running` *before* the clearing event's own specific
 //! mapping runs, so one event can both clear the pending state and carry its
-//! own effect (e.g. a `PostToolUse` that clears a pending permission also
-//! updates `current_action`/`recent_actions` in the same step). See
-//! `clear_pending_tool_use` below.
+//! own effect (e.g. a `PreToolUse` that clears a pending permission also
+//! updates `current_action`/`recent_actions` in the same step — but only
+//! `PreToolUse` touches that pair; `PostToolUse`/`PostToolUseFailure` share
+//! the same clearing but never touch `current_action`/`recent_actions`, T02
+//! finding 2). The same clear also resets `final_assistant_text` to `None`
+//! (T02 finding 4, item 9) — a resolved permission/elicitation's
+//! synthesized question text must not survive past the moment its pending
+//! state clears, for the same reason `UserPromptSubmit` clears it on a new
+//! turn. See `clear_pending_tool_use` below.
 //!
 //! `PermissionRequest`/`Elicitation` carry no `agent_id` field today, so
 //! `pending_tool_use_id` is only ever set on the *top-level* tracked
@@ -93,7 +99,12 @@
 //!     receipt time; later events preserve it. `last_updated` is always the
 //!     current event's own local receipt time.
 //!   - A tracked session's `pending_tool_use_id` clears on any event whose
-//!     own `tool_use_id` matches it, regardless of event kind (R14).
+//!     own `tool_use_id` matches it, regardless of event kind (R14); the
+//!     same match also clears `final_assistant_text` (T02 finding 4).
+//!   - `current_action`/`recent_actions` (`snapshot.rs`'s invariants: never
+//!     a raw tool name, never duplicated between the two) are updated only
+//!     by `PreToolUse`, via `action_line::render_action_line` (T02
+//!     finding 2) — `PostToolUse`/`PostToolUseFailure` never touch either.
 //!   - Project identity resolves through the shared
 //!     [`ProjectIdentityCache`]; an unresolvable cwd degrades to the documented
 //!     uncanonicalized identity fallback and processing continues.
@@ -122,13 +133,14 @@ use crate::project_identity::{DirResolver, GitDirResolver, ProjectIdentityCache}
 use crate::snapshot::{AttentionState, ProjectId, SessionId, SessionSnapshot, Timestamp};
 use crate::text::looks_like_question;
 
+use super::action_line;
 use super::hook::{ClaudeEvent, ClaudeIpcEnvelope};
 use super::KIND;
 
 /// Bound on the recent-actions ring (`claude.md` R14; mirrors the pattern in
-/// `opencode/session_state.rs`'s `RECENT_ACTIONS_CAP`, sized smaller here
-/// since Claude's only source of an action line is a bare tool name, not a
-/// rendered line worth keeping a long history of).
+/// `opencode/session_state.rs`'s `RECENT_ACTIONS_CAP`). Holds rendered
+/// action lines (`action_line::render_action_line`), the same as
+/// OpenCode's own ring — not bare tool names (T02, finding 2).
 const RECENT_ACTIONS_CAP: usize = 5;
 
 /// What the adapter remembers about one live Claude session — top-level or
@@ -198,20 +210,20 @@ impl<R: DirResolver> ClaudeState<R> {
                 };
                 tracked.turn_started = Some(receipt);
                 tracked.last_user_prompt = Some(prompt.clone());
+                // A new turn's stale "previous answer" (finding 4, item 6)
+                // must not persist into whatever NeedsYou state this new
+                // turn eventually reaches.
+                tracked.final_assistant_text = None;
                 snapshot_event(&top_id, tracked, receipt)
             }
+            // Split from PostToolUse/PostToolUseFailure below (finding 2,
+            // item 4): only PreToolUse updates current_action/recent_actions
+            // — PostToolUse/PostToolUseFailure share everything else
+            // (routing, the generic exit-path clear, forcing attention back
+            // to Running) but must not touch either field.
             ClaudeEvent::PreToolUse {
                 tool_name,
-                agent_id,
-                ..
-            }
-            | ClaudeEvent::PostToolUse {
-                tool_name,
-                agent_id,
-                ..
-            }
-            | ClaudeEvent::PostToolUseFailure {
-                tool_name,
+                tool_input,
                 agent_id,
                 ..
             } => {
@@ -250,8 +262,40 @@ impl<R: DirResolver> ClaudeState<R> {
                 tracked.attention = AttentionState::Running {
                     turn_started: tracked.turn_started.unwrap_or(receipt),
                 };
-                tracked.current_action = Some(format!("tool: {tool_name}"));
-                push_recent_action(&mut tracked.recent_actions, tool_name.clone());
+                // Only PreToolUse advances the ring/current-action pair, and
+                // only with the *previous* call's rendered line, never the
+                // bare tool name (finding 2, item 4): pushing the value this
+                // call is about to replace, not the value it is setting,
+                // is what keeps recent_actions from ever containing the
+                // current current_action (snapshot.rs's own invariant).
+                let line = action_line::render_action_line(tool_name, tool_input);
+                if let Some(previous) = tracked.current_action.take() {
+                    push_recent_action(&mut tracked.recent_actions, previous);
+                }
+                tracked.current_action = Some(line);
+                snapshot_event(&target, tracked, receipt)
+            }
+            ClaudeEvent::PostToolUse { agent_id, .. }
+            | ClaudeEvent::PostToolUseFailure { agent_id, .. } => {
+                let target = target_of(&top_id, agent_id.as_deref());
+                let parent = parent_of(&top_id, agent_id.as_deref());
+                self.ensure_tracked(&target, cwd, receipt, parent);
+
+                // Same top-level-pending-clear fix as PreToolUse above — see
+                // its comment for the full rationale.
+                if target != top_id {
+                    if let Some(top_tracked) = self.sessions.get_mut(&top_id) {
+                        clear_pending_tool_use(top_tracked, &envelope.record.event, receipt);
+                    }
+                }
+
+                let tracked = self.sessions.get_mut(&target).expect("just ensured");
+                clear_pending_tool_use(tracked, &envelope.record.event, receipt);
+                tracked.attention = AttentionState::Running {
+                    turn_started: tracked.turn_started.unwrap_or(receipt),
+                };
+                // Deliberately does not touch current_action/recent_actions
+                // (finding 2, item 4) — PreToolUse alone owns that pair.
                 snapshot_event(&target, tracked, receipt)
             }
             // NOTE: PermissionRequest/Elicitation have no agent_id field
@@ -261,7 +305,11 @@ impl<R: DirResolver> ClaudeState<R> {
             // fix that depends on this being true — see its comment. If
             // agent_id is ever added to this event, that fix (and this one)
             // need revisiting together.
-            ClaudeEvent::PermissionRequest { tool_use_id, .. } => {
+            ClaudeEvent::PermissionRequest {
+                tool_name,
+                tool_use_id,
+                tool_input,
+            } => {
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
@@ -270,13 +318,17 @@ impl<R: DirResolver> ClaudeState<R> {
                     question: true,
                     turn_ended: receipt,
                 };
+                // Finding 4, item 7: the Question tile shows what is being
+                // asked for, reusing finding 2's own object extraction.
+                tracked.final_assistant_text =
+                    Some(action_line::render_permission_text(tool_name, tool_input));
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::PermissionDenied { .. } => {
-                // No effect beyond the generic exit-path clear (module doc
-                // comment): the tile's only defined reaction to a denial is
-                // "the need has cleared," which clear_pending_tool_use
-                // already handles for any matching tool_use_id.
+                // Beyond the generic exit-path clear (module doc comment),
+                // clear_pending_tool_use itself now also clears
+                // final_assistant_text on a matching tool_use_id (finding 4,
+                // item 9) — see its own doc comment for why.
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
@@ -285,7 +337,11 @@ impl<R: DirResolver> ClaudeState<R> {
             // NOTE: same as PermissionRequest above — Elicitation has no
             // agent_id field today, so pending_tool_use_id only ever lands
             // on the top-level record. See the tool-event arm's comment.
-            ClaudeEvent::Elicitation { tool_use_id, .. } => {
+            ClaudeEvent::Elicitation {
+                tool_use_id,
+                elicitation_request,
+                ..
+            } => {
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
@@ -294,11 +350,15 @@ impl<R: DirResolver> ClaudeState<R> {
                     question: true,
                     turn_ended: receipt,
                 };
+                // Finding 4, item 8: already natural-language request text,
+                // no extraction needed.
+                tracked.final_assistant_text = Some(elicitation_request.clone());
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::ElicitationResult { .. } => {
                 // Mirrors PermissionDenied: only the generic exit-path clear
-                // applies.
+                // applies (which also clears final_assistant_text on a
+                // match — see clear_pending_tool_use's doc comment).
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
@@ -444,6 +504,29 @@ impl<R: DirResolver> ClaudeState<R> {
 /// event can also carry its own effect (e.g. `PostToolUse` also sets
 /// `current_action`). Never assumes which specific event kind clears a given
 /// pending state: a mismatched or absent `tool_use_id` is a no-op here.
+///
+/// **Also clears `final_assistant_text` on the same match** (finding 4, item
+/// 9, `tasks/2026-09-05-claude-dashboard-fable-fixes/contracts/
+/// T02-tile-content-correctness.md`): `PermissionRequest`/`Elicitation` set
+/// `final_assistant_text` to a synthesized "allow: X" / request string
+/// (items 7-8) so the Question tile shows what's being asked for. Once this
+/// function's match fires — whichever event caused it, `PermissionDenied`,
+/// `ElicitationResult`, `PostToolUse`, or `PostToolUseFailure` — that text
+/// describes a question that has already been answered, and attention has
+/// already moved back to `Running` (whose own tile block list never shows
+/// `final_assistant_text`, so the stale text is briefly invisible). Left
+/// alone, it would survive in tracked state and resurface if this session
+/// later reaches an `Idle`/`NeedsYou(plain)` tile with no intervening
+/// `Stop`/`UserPromptSubmit` to overwrite it — the same class of bug item 6
+/// fixes for `UserPromptSubmit`, just reachable from every event kind this
+/// generic rule already covers, not only the two `PermissionDenied`/
+/// `ElicitationResult` arms that (before this fix) were the only ones
+/// thought to need it. Clearing only on an actual match — never
+/// unconditionally in a calling arm — is deliberate: a mismatched
+/// `tool_use_id` means an unrelated event arrived while a different
+/// permission is still genuinely pending, and that pending question's text
+/// must not be wiped by it (see `mismatched_tool_use_id_does_not_clear_the_
+/// pending_permission` in this module's tests).
 fn clear_pending_tool_use(tracked: &mut ClaudeTrackedSession, event: &ClaudeEvent, receipt: Timestamp) {
     if let Some(tool_use_id) = event.tool_use_id() {
         if tracked.pending_tool_use_id.as_deref() == Some(tool_use_id) {
@@ -451,6 +534,7 @@ fn clear_pending_tool_use(tracked: &mut ClaudeTrackedSession, event: &ClaudeEven
             tracked.attention = AttentionState::Running {
                 turn_started: tracked.turn_started.unwrap_or(receipt),
             };
+            tracked.final_assistant_text = None;
         }
     }
 }
@@ -630,6 +714,31 @@ mod tests {
         )
     }
 
+    /// Like `pre_tool`, but with an explicit `tool_input` string — for tests
+    /// that need `action_line::render_action_line` to actually extract an
+    /// object (finding 2, items 5(a)-(e)/(g)/(h)/(i)).
+    fn pre_tool_with_input(
+        session: &str,
+        cwd: &str,
+        tool_name: &str,
+        tool_input: &str,
+        agent_id: Option<&str>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
+        envelope(
+            ClaudeEvent::PreToolUse {
+                tool_name: tool_name.to_string(),
+                tool_use_id: "call-1".to_string(),
+                tool_input: tool_input.to_string(),
+                agent_id: agent_id.map(str::to_string),
+                agent_type: None,
+            },
+            session,
+            cwd,
+            received_at,
+        )
+    }
+
     fn stop(session: &str, cwd: &str, agent_id: Option<&str>, received_at: u64) -> ClaudeIpcEnvelope {
         stop_with_message(session, cwd, "done", agent_id, received_at)
     }
@@ -673,6 +782,29 @@ mod tests {
                 tool_name: "Bash".to_string(),
                 tool_use_id: tool_use_id.to_string(),
                 tool_input: "{}".to_string(),
+            },
+            session,
+            cwd,
+            received_at,
+        )
+    }
+
+    /// Like `permission_request`, but with an explicit `tool_name`/
+    /// `tool_input` — for the finding-4 test that checks the synthesized
+    /// `"allow: <command>"` text (item 10(b)).
+    fn permission_request_with_input(
+        session: &str,
+        cwd: &str,
+        tool_name: &str,
+        tool_input: &str,
+        tool_use_id: &str,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
+        envelope(
+            ClaudeEvent::PermissionRequest {
+                tool_name: tool_name.to_string(),
+                tool_use_id: tool_use_id.to_string(),
+                tool_input: tool_input.to_string(),
             },
             session,
             cwd,
@@ -927,13 +1059,14 @@ mod tests {
     }
 
     #[test]
-    fn tool_events_are_running_and_populate_current_and_recent_actions() {
+    fn tool_events_are_running_and_populate_current_action() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        let snapshot = single_snapshot(state.process(&pre_tool(
+        let snapshot = single_snapshot(state.process(&pre_tool_with_input(
             "sess-1",
             "/work/proj",
             "Edit",
+            r#"{"file_path":"/work/proj/src/lib.rs"}"#,
             None,
             R2,
         )));
@@ -944,24 +1077,85 @@ mod tests {
             },
             "tool event reuses the turn's own start, not its own receipt"
         );
-        assert_eq!(snapshot.current_action.as_deref(), Some("tool: Edit"));
-        assert_eq!(
-            snapshot.recent_actions,
-            vec!["Edit".to_string()],
-            "the just-processed tool also lands in the ring (R14: pushed unconditionally)"
+        assert_eq!(snapshot.current_action.as_deref(), Some("editing: lib.rs"));
+        assert!(
+            snapshot.recent_actions.is_empty(),
+            "the first tool call of a turn has no previous current_action to push"
         );
+    }
 
-        let second = single_snapshot(state.process(&pre_tool(
+    // --- Finding 2, item 5(h)/5(i): the double-count bug and PostToolUse's
+    // non-effect on current_action/recent_actions ---
+
+    #[test]
+    fn two_consecutive_pre_tool_use_calls_ring_gains_only_the_first_line() {
+        // Item 5(h): the ring gains exactly one entry (the first call's
+        // line) and current_action reads the second call's line — proves
+        // the double-count bug (pushing the bare tool name unconditionally
+        // in addition to setting current_action) is fixed.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let first = single_snapshot(state.process(&pre_tool_with_input(
+            "sess-1",
+            "/work/proj",
+            "Edit",
+            r#"{"file_path":"/work/proj/src/lib.rs"}"#,
+            None,
+            R2,
+        )));
+        assert_eq!(first.current_action.as_deref(), Some("editing: lib.rs"));
+        assert!(first.recent_actions.is_empty());
+
+        let second = single_snapshot(state.process(&pre_tool_with_input(
             "sess-1",
             "/work/proj",
             "Bash",
+            r#"{"command":"cargo test"}"#,
             None,
             R3,
         )));
-        assert_eq!(second.current_action.as_deref(), Some("tool: Bash"));
+        assert_eq!(
+            second.current_action.as_deref(),
+            Some("running: cargo test")
+        );
         assert_eq!(
             second.recent_actions,
-            vec!["Edit".to_string(), "Bash".to_string()]
+            vec!["editing: lib.rs".to_string()],
+            "the ring holds only the first call's line — never a duplicate \
+             of the second call's own current_action"
+        );
+    }
+
+    #[test]
+    fn post_tool_use_following_pre_tool_use_leaves_current_and_recent_actions_untouched() {
+        // Item 5(i): PostToolUse for the same call must not change
+        // current_action or recent_actions at all — it only runs the
+        // shared clear_pending_tool_use/attention-Running/routing logic.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let after_pre = single_snapshot(state.process(&pre_tool_with_input(
+            "sess-1",
+            "/work/proj",
+            "Edit",
+            r#"{"file_path":"/work/proj/src/lib.rs"}"#,
+            None,
+            R2,
+        )));
+
+        let after_post = single_snapshot(state.process(&post_tool(
+            "sess-1",
+            "/work/proj",
+            "Edit",
+            "call-1",
+            R3,
+        )));
+        assert_eq!(
+            after_post.current_action, after_pre.current_action,
+            "PostToolUse must not change current_action"
+        );
+        assert_eq!(
+            after_post.recent_actions, after_pre.recent_actions,
+            "PostToolUse must not change recent_actions"
         );
     }
 
@@ -984,7 +1178,12 @@ mod tests {
     }
 
     #[test]
-    fn recent_actions_ring_is_bounded_at_five() {
+    fn recent_actions_ring_is_bounded_at_five_and_never_contains_current_action() {
+        // Nine PreToolUse calls (tool-0..tool-8), each an unknown tool name
+        // so every call renders "running: tool-N". Under the fixed
+        // semantics, the ring holds only *previous* current_action values
+        // (never the current one — snapshot.rs's own invariant) and stays
+        // capped at 5.
         let mut state = ClaudeState::new(IdentityResolver);
         for (i, r) in (0..8).zip(R1..) {
             state.process(&pre_tool(
@@ -1002,16 +1201,18 @@ mod tests {
             None,
             R1 + 8,
         )));
+        assert_eq!(snapshot.current_action.as_deref(), Some("running: tool-8"));
         assert_eq!(snapshot.recent_actions.len(), 5);
         assert_eq!(
             snapshot.recent_actions,
             vec![
-                "tool-4".to_string(),
-                "tool-5".to_string(),
-                "tool-6".to_string(),
-                "tool-7".to_string(),
-                "tool-8".to_string(),
-            ]
+                "running: tool-3".to_string(),
+                "running: tool-4".to_string(),
+                "running: tool-5".to_string(),
+                "running: tool-6".to_string(),
+                "running: tool-7".to_string(),
+            ],
+            "the ring never includes tool-8, the current current_action"
         );
     }
 
@@ -1053,10 +1254,17 @@ mod tests {
                 turn_ended: ts(R2)
             }
         );
+        assert_eq!(
+            waiting.final_assistant_text.as_deref(),
+            Some("allow: Bash"),
+            "the fixture's tool_input (\"{{}}\") has no command field, so \
+             this falls back to the bare tool name (item 7's fallback rule)"
+        );
 
         // The same tool_use_id's PostToolUse (the tool actually running)
         // clears the pending permission and carries its own effect in the
-        // same step — never stuck NeedsYou.
+        // same step — never stuck NeedsYou. Item 4: PostToolUse never sets
+        // current_action, so it stays None here (no PreToolUse ever ran).
         let resumed = single_snapshot(state.process(&post_tool(
             "sess-1",
             "/work/proj",
@@ -1071,7 +1279,18 @@ mod tests {
             },
             "clearing reuses the turn's own start, not the clearing event's receipt"
         );
-        assert_eq!(resumed.current_action.as_deref(), Some("tool: Bash"));
+        assert_eq!(
+            resumed.current_action, None,
+            "PostToolUse never sets current_action (item 4)"
+        );
+        assert_eq!(
+            resumed.final_assistant_text, None,
+            "the approval path also clears the stale \"allow: X\" text \
+             (item 9's rationale applies here too, not just \
+             PermissionDenied/ElicitationResult — clear_pending_tool_use \
+             clears it on any matching tool_use_id, whichever event carries \
+             it)"
+        );
     }
 
     #[test]
@@ -1228,6 +1447,139 @@ mod tests {
             AttentionState::Running {
                 turn_started: ts(R1)
             }
+        );
+    }
+
+    // --- Finding 4 (T02): Question tile content correctness, items 10(a)-(e) ---
+
+    #[test]
+    fn user_prompt_submit_clears_a_prior_final_assistant_text() {
+        // Item 10(a): a new turn's stale "previous answer" must not persist
+        // into whatever NeedsYou state this new turn eventually reaches.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let stopped = single_snapshot(state.process(&stop_with_message(
+            "sess-1",
+            "/work/proj",
+            "Which file would you like me to delete?",
+            None,
+            R2,
+        )));
+        assert_eq!(
+            stopped.final_assistant_text.as_deref(),
+            Some("Which file would you like me to delete?")
+        );
+
+        let next_turn = single_snapshot(state.process(&prompt(
+            "sess-1",
+            "/work/proj",
+            "delete a.txt",
+            R3,
+        )));
+        assert_eq!(
+            next_turn.final_assistant_text, None,
+            "the previous turn's answer must not survive into the new turn"
+        );
+    }
+
+    #[test]
+    fn permission_request_sets_final_assistant_text_to_allow_command() {
+        // Item 10(b).
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let waiting = single_snapshot(state.process(&permission_request_with_input(
+            "sess-1",
+            "/work/proj",
+            "Bash",
+            r#"{"command":"rm -rf build"}"#,
+            "call-1",
+            R2,
+        )));
+        assert_eq!(
+            waiting.final_assistant_text.as_deref(),
+            Some("allow: rm -rf build")
+        );
+    }
+
+    #[test]
+    fn elicitation_sets_final_assistant_text_to_the_raw_request_text() {
+        // Item 10(c): already natural-language text, no extraction.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        let waiting = single_snapshot(state.process(&elicitation(
+            "sess-1",
+            "/work/proj",
+            "call-elicit",
+            R2,
+        )));
+        assert_eq!(waiting.final_assistant_text.as_deref(), Some("confirm deletion?"));
+    }
+
+    #[test]
+    fn permission_denied_clears_final_assistant_text() {
+        // Item 10(d).
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        state.process(&permission_request_with_input(
+            "sess-1",
+            "/work/proj",
+            "Bash",
+            r#"{"command":"rm -rf build"}"#,
+            "call-deny",
+            R2,
+        ));
+        let cleared = single_snapshot(state.process(&permission_denied(
+            "sess-1",
+            "/work/proj",
+            "call-deny",
+            R3,
+        )));
+        assert_eq!(cleared.final_assistant_text, None);
+    }
+
+    #[test]
+    fn elicitation_result_clears_final_assistant_text() {
+        // Item 10(e).
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        state.process(&elicitation("sess-1", "/work/proj", "call-elicit", R2));
+        let cleared = single_snapshot(state.process(&elicitation_result(
+            "sess-1",
+            "/work/proj",
+            "call-elicit",
+            R3,
+        )));
+        assert_eq!(cleared.final_assistant_text, None);
+    }
+
+    #[test]
+    fn mismatched_permission_denied_does_not_clear_an_unrelated_pending_question() {
+        // Guards the conditional design of clear_pending_tool_use's new
+        // final_assistant_text clear: an unrelated denial (wrong
+        // tool_use_id) must not wipe a *different*, still-genuinely-pending
+        // permission's question text.
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        state.process(&permission_request_with_input(
+            "sess-1",
+            "/work/proj",
+            "Bash",
+            r#"{"command":"rm -rf build"}"#,
+            "call-real",
+            R2,
+        ));
+
+        let still_waiting = single_snapshot(state.process(&permission_denied(
+            "sess-1",
+            "/work/proj",
+            "call-other",
+            R3,
+        )));
+        assert_eq!(
+            still_waiting.final_assistant_text.as_deref(),
+            Some("allow: rm -rf build"),
+            "a denial for an unrelated tool_use_id must not clear this \
+             session's actually-pending question text"
         );
     }
 
@@ -1463,7 +1815,12 @@ mod tests {
         )));
 
         assert_eq!(snapshot.session_id.native_id, "top:agent-1");
-        assert_eq!(snapshot.current_action.as_deref(), Some("tool: Edit"));
+        assert_eq!(
+            snapshot.current_action.as_deref(),
+            Some("running: Edit"),
+            "the fixture's tool_input (\"{{}}\") has no file_path field, so \
+             this falls back to the bare tool name"
+        );
         // The parent (top-level) session is untouched by the subagent's tool
         // event: a subsequent SessionEnd for it still cleanly tombstones,
         // independent of subagent state.
