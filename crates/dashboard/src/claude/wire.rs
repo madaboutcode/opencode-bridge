@@ -1,40 +1,45 @@
 //! Versioned wire decoding for the Claude hook envelope — `docs/specs/dashboard/
-//! claude.md` R15-R15.1, T03 [`crate::claude::DESIGN.md`].
+//! claude.md` R15-R15.1, [`crate::claude::DESIGN.md`].
 //!
-//! T02's `hook` module writes one bounded, newline-delimited, versioned JSON
-//! envelope per accepted lifecycle event. This module is the receiving half of
-//! that contract: the T04 listener reads one line from the Unix socket and
-//! calls [`decode_envelope`], which validates the protocol version, the exact
-//! T02 allowlisted record fields, and every value bound before constructing the
-//! typed T02 [`ClaudeIpcEnvelope`] that [`crate::claude::state`] and
-//! [`crate::claude::ClaudeAdapter`] consume. Raw JSON lives only inside a
-//! transient `serde_json::Value` scoped to one call and is dropped before
-//! anything else runs (`claude.md` R14: never retain the raw value).
+//! `hook`'s module writes one bounded, newline-delimited, versioned JSON
+//! envelope per accepted activity event (R13/R14's fifteen-event allowlist).
+//! This module is the receiving half of that contract: the listener reads one
+//! line from the Unix socket and calls [`decode_envelope`], which validates
+//! the protocol version, the exact `hook`-allowlisted record fields for
+//! whichever of the fifteen event kinds the line carries, and every value
+//! bound, before constructing the typed [`ClaudeIpcEnvelope`] that
+//! [`crate::claude::state`] and [`crate::claude::ClaudeAdapter`] consume. Raw
+//! JSON lives only inside a transient `serde_json::Value` scoped to one call
+//! and is dropped before anything else runs (`claude.md` R14: never retain
+//! the raw value).
 //!
 //! The decoder never reads an unallowlisted key or value, so an envelope that
-//! somehow carries extra fields (which T02's serializer itself never emits)
+//! somehow carries extra fields (which `hook`'s serializer itself never emits)
 //! decodes to the same typed record — the extras are ignored, not retained.
 //!
-//! CONTRACT: ClaudeIpcWireDecoder (T03; `docs/specs/dashboard/claude.md`
+//! CONTRACT: ClaudeIpcWireDecoder (`docs/specs/dashboard/claude.md`
 //! R13-R15.1; `crates/dashboard/src/claude/DESIGN.md`)
 //!
 //! GUARANTEES:
-//!   - [`decode_envelope`] turns exactly one bounded, newline-delimited T02
-//!     envelope into a typed `ClaudeIpcEnvelope` when the wire carries protocol
-//!     version 1 and only the exact T02 allowlisted fields (`session_id`, `cwd`,
-//!     event kind, the allowlisted `source`/`reason` labels, `received_at`).
-//!     Every other key and value is never read.
+//!   - [`decode_envelope`] turns exactly one bounded, newline-delimited
+//!     `hook`-produced envelope into a typed `ClaudeIpcEnvelope` when the wire
+//!     carries protocol version 1 and only the exact allowlisted fields for
+//!     one of the fifteen R13 event kinds (`session_id`, `cwd`, event kind,
+//!     the per-kind R14 fields, `received_at`). Every other key and value is
+//!     never read.
 //!   - Malformed JSON, a missing/wrong/unknown protocol version, an unknown
-//!     event kind, and out-of-bounds values (empty/oversized session id or cwd,
-//!     a line over the envelope bound, an embedded newline, a `received_at`
-//!     outside the shared `Timestamp` range) are rejected with a category-only
-//!     [`DecodeError`] that never carries the rejected value or raw JSON.
+//!     event kind, and out-of-bounds values (empty/oversized session id or
+//!     cwd, an over-length label, a line over the envelope bound, an embedded
+//!     newline, a `received_at` outside the shared `Timestamp` range) are
+//!     rejected with a category-only [`DecodeError`] that never carries the
+//!     rejected value or raw JSON.
 //!   - The transient `serde_json::Value` never escapes this module and never
 //!     appears in state or logs.
 //!
 //! EXPECTS:
-//!   - T04 to hand [`decode_envelope`] exactly one line (optionally
-//!     newline-terminated) produced by T02's `serialize_envelope`/`deliver_to`.
+//!   - The listener to hand [`decode_envelope`] exactly one line (optionally
+//!     newline-terminated) produced by `hook`'s `serialize_envelope`/
+//!     `deliver_to`.
 //!
 //! FAILURE BEHAVIOR:
 //!   - Every rejection returns `Err(DecodeError)` with only the category;
@@ -42,15 +47,15 @@
 //!     adapter ever sees a partial or unvalidated envelope.
 //!
 //! DOES NOT:
-//!   - Open sockets, touch Claude configuration or transcripts, retain raw JSON,
-//!     or accept any protocol other than version 1.
+//!   - Open sockets, touch Claude configuration or transcripts, retain raw
+//!     JSON, or accept any protocol other than version 1.
 
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 use super::hook::{
     ClaudeEvent, ClaudeHookRecord, ClaudeIpcEnvelope, ReceivedAt, SessionEndReason,
     SessionStartSource, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
-    MAX_SESSION_ID_LEN,
+    MAX_LABEL_LEN, MAX_SESSION_ID_LEN,
 };
 
 /// Why a wire line was rejected. Category-only on purpose: the rejected
@@ -59,16 +64,17 @@ use super::hook::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DecodeError {
     /// Not valid JSON, a required allowlisted field is missing or mistyped,
-    /// or an allowlisted metadata label carries an unverified value.
+    /// or an allowlisted metadata/label value is unverified (outside a
+    /// closed set, or a label over its length bound).
     Malformed,
     /// `protocol_version` is present but not the sole supported version 1.
     UnknownVersion,
-    /// The event `kind` is not one of T02's allowlisted three.
+    /// The event `kind` is not one of the fifteen R13 allowlisted kinds.
     UnknownEvent,
-    /// A value violates a hard bound: an empty session id or cwd, an
-    /// oversized UTF-8 byte value, a line longer than `MAX_ENVELOPE_BYTES` or
-    /// containing more than one newline, or a `received_at` outside the shared
-    /// `Timestamp` range.
+    /// A value violates a hard identity bound: an empty session id or cwd,
+    /// an oversized UTF-8 byte value, a line longer than `MAX_ENVELOPE_BYTES`
+    /// or containing more than one newline, or a `received_at` outside the
+    /// shared `Timestamp` range.
     OutOfBounds,
 }
 
@@ -89,17 +95,18 @@ impl std::fmt::Display for DecodeError {
     }
 }
 
-/// Decode one bounded, newline-delimited T02 envelope into its typed form
-/// (`claude.md` R15/R15.1). This is the public decoder T04 calls after reading
-/// one line from the listener socket.
+/// Decode one bounded, newline-delimited `hook`-produced envelope into its
+/// typed form (`claude.md` R15/R15.1). This is the public decoder the
+/// listener calls after reading one line from the socket.
 ///
-/// The input is deserialized into a transient `serde_json::Value` strictly for
-/// extraction — the same never-retain pattern T02's own `parse_hook_input`
-/// uses — and only allowlisted keys are ever read. The original JSON and every
-/// rejected value are dropped before the typed envelope is returned.
+/// The input is deserialized into a transient `serde_json::Value` strictly
+/// for extraction — the same never-retain pattern `hook`'s own
+/// `parse_hook_input` uses — and only allowlisted keys are ever read. The
+/// original JSON and every rejected value are dropped before the typed
+/// envelope is returned.
 pub fn decode_envelope(line: &str) -> Result<ClaudeIpcEnvelope, DecodeError> {
     // Hard frame bound first: a line over the serialized-envelope cap is
-    // rejected before any parsing, matching T02's own MAX_ENVELOPE_BYTES
+    // rejected before any parsing, matching `hook`'s own MAX_ENVELOPE_BYTES
     // serializer bound (which includes the trailing newline).
     if line.len() > MAX_ENVELOPE_BYTES {
         return Err(DecodeError::OutOfBounds);
@@ -160,30 +167,7 @@ pub fn decode_envelope(line: &str) -> Result<ClaudeIpcEnvelope, DecodeError> {
         .get("kind")
         .and_then(Value::as_str)
         .ok_or(DecodeError::Malformed)?;
-    let event = match kind {
-        "session_start" => {
-            let source = match event.get("source") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(label)) => {
-                    Some(SessionStartSource::parse(label).ok_or(DecodeError::Malformed)?)
-                }
-                Some(_) => return Err(DecodeError::Malformed),
-            };
-            ClaudeEvent::SessionStart { source }
-        }
-        "stop_failure" => ClaudeEvent::StopFailure,
-        "session_end" => {
-            let reason = match event.get("reason") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(label)) => {
-                    Some(SessionEndReason::parse(label).ok_or(DecodeError::Malformed)?)
-                }
-                Some(_) => return Err(DecodeError::Malformed),
-            };
-            ClaudeEvent::SessionEnd { reason }
-        }
-        _ => return Err(DecodeError::UnknownEvent),
-    };
+    let event = decode_event(kind, event)?;
 
     Ok(ClaudeIpcEnvelope {
         protocol_version: ENVELOPE_PROTOCOL_VERSION,
@@ -194,6 +178,216 @@ pub fn decode_envelope(line: &str) -> Result<ClaudeIpcEnvelope, DecodeError> {
             received_at: ReceivedAt(received_at),
         },
     })
+}
+
+fn decode_event(kind: &str, event: &Map<String, Value>) -> Result<ClaudeEvent, DecodeError> {
+    match kind {
+        "session_start" => {
+            let source = match event.get("source") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(label)) => {
+                    Some(SessionStartSource::parse(label).ok_or(DecodeError::Malformed)?)
+                }
+                Some(_) => return Err(DecodeError::Malformed),
+            };
+            let model = read_optional_label(event, "model")?;
+            Ok(ClaudeEvent::SessionStart { source, model })
+        }
+        "user_prompt_submit" => {
+            let prompt = read_required_text(event, "prompt")?;
+            Ok(ClaudeEvent::UserPromptSubmit { prompt })
+        }
+        "pre_tool_use" => {
+            let tool_name = read_required_label(event, "tool_name")?;
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let tool_input = read_required_text(event, "tool_input")?;
+            let agent_id = read_optional_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            Ok(ClaudeEvent::PreToolUse {
+                tool_name,
+                tool_use_id,
+                tool_input,
+                agent_id,
+                agent_type,
+            })
+        }
+        "post_tool_use" => {
+            let tool_name = read_required_label(event, "tool_name")?;
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let tool_input = read_required_text(event, "tool_input")?;
+            let tool_response = read_required_text(event, "tool_response")?;
+            let agent_id = read_optional_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            Ok(ClaudeEvent::PostToolUse {
+                tool_name,
+                tool_use_id,
+                tool_input,
+                tool_response,
+                agent_id,
+                agent_type,
+            })
+        }
+        "post_tool_use_failure" => {
+            let tool_name = read_required_label(event, "tool_name")?;
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let tool_input = read_required_text(event, "tool_input")?;
+            let error = read_required_text(event, "error")?;
+            let error_type = read_optional_label(event, "error_type")?;
+            let agent_id = read_optional_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            Ok(ClaudeEvent::PostToolUseFailure {
+                tool_name,
+                tool_use_id,
+                tool_input,
+                error,
+                error_type,
+                agent_id,
+                agent_type,
+            })
+        }
+        "permission_request" => {
+            let tool_name = read_required_label(event, "tool_name")?;
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let tool_input = read_required_text(event, "tool_input")?;
+            Ok(ClaudeEvent::PermissionRequest {
+                tool_name,
+                tool_use_id,
+                tool_input,
+            })
+        }
+        "permission_denied" => {
+            let tool_name = read_required_label(event, "tool_name")?;
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let denial_reason = read_optional_text(event, "denial_reason")?;
+            Ok(ClaudeEvent::PermissionDenied {
+                tool_name,
+                tool_use_id,
+                denial_reason,
+            })
+        }
+        "elicitation" => {
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let server_name = read_required_label(event, "server_name")?;
+            let elicitation_request = read_required_text(event, "elicitation_request")?;
+            Ok(ClaudeEvent::Elicitation {
+                tool_use_id,
+                server_name,
+                elicitation_request,
+            })
+        }
+        "elicitation_result" => {
+            let tool_use_id = read_required_label(event, "tool_use_id")?;
+            let server_name = read_required_label(event, "server_name")?;
+            let user_response = read_required_text(event, "user_response")?;
+            Ok(ClaudeEvent::ElicitationResult {
+                tool_use_id,
+                server_name,
+                user_response,
+            })
+        }
+        "notification" => {
+            let notification_type = read_optional_label(event, "notification_type")?;
+            let notification_message = read_required_text(event, "notification_message")?;
+            Ok(ClaudeEvent::Notification {
+                notification_type,
+                notification_message,
+            })
+        }
+        "stop" => {
+            let last_assistant_message = read_required_text(event, "last_assistant_message")?;
+            let agent_id = read_optional_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            Ok(ClaudeEvent::Stop {
+                last_assistant_message,
+                agent_id,
+                agent_type,
+            })
+        }
+        "stop_failure" => {
+            let error_type = read_optional_label(event, "error_type")?;
+            Ok(ClaudeEvent::StopFailure { error_type })
+        }
+        "subagent_start" => {
+            let agent_id = read_required_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            let agent_prompt = read_required_text(event, "agent_prompt")?;
+            Ok(ClaudeEvent::SubagentStart {
+                agent_id,
+                agent_type,
+                agent_prompt,
+            })
+        }
+        "subagent_stop" => {
+            let agent_id = read_required_label(event, "agent_id")?;
+            let agent_type = read_optional_label(event, "agent_type")?;
+            let last_assistant_message = read_required_text(event, "last_assistant_message")?;
+            let stop_reason = read_optional_label(event, "stop_reason")?;
+            Ok(ClaudeEvent::SubagentStop {
+                agent_id,
+                agent_type,
+                last_assistant_message,
+                stop_reason,
+            })
+        }
+        "session_end" => {
+            let reason = match event.get("reason") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(label)) => {
+                    Some(SessionEndReason::parse(label).ok_or(DecodeError::Malformed)?)
+                }
+                Some(_) => return Err(DecodeError::Malformed),
+            };
+            Ok(ClaudeEvent::SessionEnd { reason })
+        }
+        _ => Err(DecodeError::UnknownEvent),
+    }
+}
+
+/// Reads a required "(bounded)" text field: present and a JSON string. No
+/// additional length re-check — the overall envelope size bound already
+/// gates total wire size, and `hook` truncates before it ever writes.
+fn read_required_text(event: &Map<String, Value>, key: &str) -> Result<String, DecodeError> {
+    event
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .ok_or(DecodeError::Malformed)
+}
+
+/// Reads an optional "(bounded)" text field: absent/null is `None`; present
+/// must be a JSON string. `denial_reason` is the only field of this shape
+/// (`claude.md` R14). No length re-check, matching `read_required_text`.
+fn read_optional_text(
+    event: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>, DecodeError> {
+    match event.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(DecodeError::Malformed),
+    }
+}
+
+fn valid_label(value: &str) -> bool {
+    value.len() <= MAX_LABEL_LEN
+}
+
+fn read_required_label(event: &Map<String, Value>, key: &str) -> Result<String, DecodeError> {
+    match event.get(key) {
+        Some(Value::String(value)) if valid_label(value) => Ok(value.clone()),
+        _ => Err(DecodeError::Malformed),
+    }
+}
+
+fn read_optional_label(
+    event: &Map<String, Value>,
+    key: &str,
+) -> Result<Option<String>, DecodeError> {
+    match event.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(value)) if valid_label(value) => Ok(Some(value.clone())),
+        Some(_) => Err(DecodeError::Malformed),
+    }
 }
 
 fn valid_session_id(value: &str) -> bool {
@@ -236,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn decodes_a_t02_serialized_start_envelope_round_trip() {
+    fn decodes_a_hook_serialized_start_envelope_round_trip() {
         let line = wire(Some("startup"));
         let decoded = decode_envelope(&line).expect("decode round trip");
         assert_eq!(decoded.protocol_version, ENVELOPE_PROTOCOL_VERSION);
@@ -246,7 +440,8 @@ mod tests {
         assert_eq!(
             decoded.record.event,
             ClaudeEvent::SessionStart {
-                source: Some(SessionStartSource::Startup)
+                source: Some(SessionStartSource::Startup),
+                model: None,
             }
         );
     }
@@ -259,30 +454,155 @@ mod tests {
         assert_rejected(&format!("{line}\n"), DecodeError::OutOfBounds);
     }
 
+    /// Every one of the fifteen allowlisted events round-trips through
+    /// `hook::parse_hook_input` -> `serialize_envelope` -> `decode_envelope`
+    /// with every R14 field it carries surviving intact.
     #[test]
-    fn every_event_kind_round_trips_with_and_without_metadata() {
-        for (input, expected) in [
+    fn every_allowlisted_event_round_trips_with_its_r14_fields() {
+        let cases: Vec<(&str, ClaudeEvent)> = vec![
             (
-                "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s\",\"cwd\":\"/w\",\"source\":\"resume\"}",
-                ClaudeEvent::SessionStart { source: Some(SessionStartSource::Resume) },
+                r#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/w","source":"resume","model":"claude-sonnet"}"#,
+                ClaudeEvent::SessionStart {
+                    source: Some(SessionStartSource::Resume),
+                    model: Some("claude-sonnet".to_string()),
+                },
             ),
             (
-                "{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s\",\"cwd\":\"/w\"}",
-                ClaudeEvent::SessionStart { source: None },
+                r#"{"hook_event_name":"SessionStart","session_id":"s","cwd":"/w"}"#,
+                ClaudeEvent::SessionStart {
+                    source: None,
+                    model: None,
+                },
             ),
             (
-                "{\"hook_event_name\":\"StopFailure\",\"session_id\":\"s\",\"cwd\":\"/w\"}",
-                ClaudeEvent::StopFailure,
+                r#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/w","prompt":"fix the bug"}"#,
+                ClaudeEvent::UserPromptSubmit {
+                    prompt: "fix the bug".to_string(),
+                },
             ),
             (
-                "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"s\",\"cwd\":\"/w\",\"reason\":\"other\"}",
-                ClaudeEvent::SessionEnd { reason: Some(SessionEndReason::Other) },
+                r#"{"hook_event_name":"PreToolUse","session_id":"s","cwd":"/w","tool_name":"Edit","tool_use_id":"c1","tool_input":{"path":"a"},"agent_id":"a1","agent_type":"general-purpose"}"#,
+                ClaudeEvent::PreToolUse {
+                    tool_name: "Edit".to_string(),
+                    tool_use_id: "c1".to_string(),
+                    tool_input: "{\"path\":\"a\"}".to_string(),
+                    agent_id: Some("a1".to_string()),
+                    agent_type: Some("general-purpose".to_string()),
+                },
             ),
             (
-                "{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"s\",\"cwd\":\"/w\"}",
+                r#"{"hook_event_name":"PostToolUse","session_id":"s","cwd":"/w","tool_name":"Bash","tool_use_id":"c2","tool_input":{"cmd":"ls"},"tool_response":"ok"}"#,
+                ClaudeEvent::PostToolUse {
+                    tool_name: "Bash".to_string(),
+                    tool_use_id: "c2".to_string(),
+                    tool_input: "{\"cmd\":\"ls\"}".to_string(),
+                    tool_response: "ok".to_string(),
+                    agent_id: None,
+                    agent_type: None,
+                },
+            ),
+            (
+                r#"{"hook_event_name":"PostToolUseFailure","session_id":"s","cwd":"/w","tool_name":"Bash","tool_use_id":"c3","tool_input":{},"error":"boom","error_type":"nonzero_exit"}"#,
+                ClaudeEvent::PostToolUseFailure {
+                    tool_name: "Bash".to_string(),
+                    tool_use_id: "c3".to_string(),
+                    tool_input: "{}".to_string(),
+                    error: "boom".to_string(),
+                    error_type: Some("nonzero_exit".to_string()),
+                    agent_id: None,
+                    agent_type: None,
+                },
+            ),
+            (
+                r#"{"hook_event_name":"PermissionRequest","session_id":"s","cwd":"/w","tool_name":"Bash","tool_use_id":"c9","tool_input":{"cmd":"rm"}}"#,
+                ClaudeEvent::PermissionRequest {
+                    tool_name: "Bash".to_string(),
+                    tool_use_id: "c9".to_string(),
+                    tool_input: "{\"cmd\":\"rm\"}".to_string(),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"PermissionDenied","session_id":"s","cwd":"/w","tool_name":"Bash","tool_use_id":"c9","denial_reason":"policy"}"#,
+                ClaudeEvent::PermissionDenied {
+                    tool_name: "Bash".to_string(),
+                    tool_use_id: "c9".to_string(),
+                    denial_reason: Some("policy".to_string()),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"PermissionDenied","session_id":"s","cwd":"/w","tool_name":"Bash","tool_use_id":"c9"}"#,
+                ClaudeEvent::PermissionDenied {
+                    tool_name: "Bash".to_string(),
+                    tool_use_id: "c9".to_string(),
+                    denial_reason: None,
+                },
+            ),
+            (
+                r#"{"hook_event_name":"Elicitation","session_id":"s","cwd":"/w","tool_use_id":"c10","server_name":"mcp","elicitation_request":"confirm?"}"#,
+                ClaudeEvent::Elicitation {
+                    tool_use_id: "c10".to_string(),
+                    server_name: "mcp".to_string(),
+                    elicitation_request: "confirm?".to_string(),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"ElicitationResult","session_id":"s","cwd":"/w","tool_use_id":"c10","server_name":"mcp","user_response":"yes"}"#,
+                ClaudeEvent::ElicitationResult {
+                    tool_use_id: "c10".to_string(),
+                    server_name: "mcp".to_string(),
+                    user_response: "yes".to_string(),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"Notification","session_id":"s","cwd":"/w","notification_type":"permission","notification_message":"waiting"}"#,
+                ClaudeEvent::Notification {
+                    notification_type: Some("permission".to_string()),
+                    notification_message: "waiting".to_string(),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"Stop","session_id":"s","cwd":"/w","last_assistant_message":"done","agent_id":"a9"}"#,
+                ClaudeEvent::Stop {
+                    last_assistant_message: "done".to_string(),
+                    agent_id: Some("a9".to_string()),
+                    agent_type: None,
+                },
+            ),
+            (
+                r#"{"hook_event_name":"StopFailure","session_id":"s","cwd":"/w","error_type":"timeout"}"#,
+                ClaudeEvent::StopFailure {
+                    error_type: Some("timeout".to_string()),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"SubagentStart","session_id":"s","cwd":"/w","agent_id":"a1","agent_type":"general-purpose","agent_prompt":"investigate"}"#,
+                ClaudeEvent::SubagentStart {
+                    agent_id: "a1".to_string(),
+                    agent_type: Some("general-purpose".to_string()),
+                    agent_prompt: "investigate".to_string(),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"SubagentStop","session_id":"s","cwd":"/w","agent_id":"a1","last_assistant_message":"found it","stop_reason":"completed"}"#,
+                ClaudeEvent::SubagentStop {
+                    agent_id: "a1".to_string(),
+                    agent_type: None,
+                    last_assistant_message: "found it".to_string(),
+                    stop_reason: Some("completed".to_string()),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"SessionEnd","session_id":"s","cwd":"/w","reason":"other"}"#,
+                ClaudeEvent::SessionEnd {
+                    reason: Some(SessionEndReason::Other),
+                },
+            ),
+            (
+                r#"{"hook_event_name":"SessionEnd","session_id":"s","cwd":"/w"}"#,
                 ClaudeEvent::SessionEnd { reason: None },
             ),
-        ] {
+        ];
+        for (input, expected) in cases {
             let line = serialize_envelope(&accepted(input)).expect("ordinary envelope must fit");
             let decoded = decode_envelope(&line).expect("decode");
             assert_eq!(decoded.record.event, expected, "input {input}");
@@ -316,6 +636,8 @@ mod tests {
             // received_at wrong type / missing.
             "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"received_at\":\"now\"}}",
             "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"}}}",
+            // PreToolUse missing a required field.
+            "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"pre_tool_use\",\"tool_name\":\"Edit\"},\"received_at\":1}}",
         ] {
             assert_rejected(line, DecodeError::Malformed);
         }
@@ -338,8 +660,8 @@ mod tests {
         for kind in [
             "session_stop",
             "SessionStart", // the hook-event name, not the envelope kind
-            "user_prompt_submit",
-            "pre_tool_use",
+            "user_prompt_submit_v2",
+            "worktree_create",
             "",
         ] {
             assert_rejected(
@@ -350,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn unverified_metadata_labels_are_rejected() {
+    fn unverified_metadata_and_oversized_labels_are_rejected() {
         // source outside the closed SessionStartSource set.
         assert_rejected(
             "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\",\"source\":\"forked-over-ssh\"},\"received_at\":1}}",
@@ -366,11 +688,22 @@ mod tests {
             "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_end\",\"reason\":\"user_abandoned\"},\"received_at\":1}}",
             DecodeError::Malformed,
         );
-        // stop_failure's sensitive label (T02 never emits it) is never read:
+        // a required label over MAX_LABEL_LEN.
+        let long_label = "i".repeat(MAX_LABEL_LEN + 1);
+        assert_rejected(
+            &format!(
+                "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{{\"kind\":\"pre_tool_use\",\"tool_name\":\"{long_label}\",\"tool_use_id\":\"c\",\"tool_input\":\"{{}}\"}},\"received_at\":1}}}}"
+            ),
+            DecodeError::Malformed,
+        );
+        // stop_failure's sensitive label (hook never emits it) is never read:
         // the kind still decodes, and the label exists nowhere on the result.
         let line = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"stop_failure\",\"error\":\"SENTINEL_ERROR\"},\"received_at\":1}}";
         let decoded = decode_envelope(line).expect("stop_failure decodes");
-        assert_eq!(decoded.record.event, ClaudeEvent::StopFailure);
+        assert_eq!(
+            decoded.record.event,
+            ClaudeEvent::StopFailure { error_type: None }
+        );
         assert!(!format!("{:?}", decoded).contains("SENTINEL_ERROR"));
     }
 
@@ -428,8 +761,9 @@ mod tests {
         );
         assert!(line.len() > MAX_ENVELOPE_BYTES);
         assert_rejected(&line, DecodeError::OutOfBounds);
-        // A T02-produced max-bounded record must still fit (see hook tests for
-        // the serializer side); here just prove the bound is the encoder's own.
+        // A hook-produced max-bounded record must still fit (see hook tests
+        // for the serializer side); here just prove the bound is the
+        // encoder's own.
         let max = accepted(&format!(
             "{{\"hook_event_name\":\"SessionStart\",\"session_id\":\"{}\",\"cwd\":\"{}\"}}",
             "i".repeat(MAX_SESSION_ID_LEN),

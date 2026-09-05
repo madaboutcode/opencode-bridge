@@ -35,7 +35,7 @@ use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
 use dashboard::adapter::SessionEvent;
 use dashboard::claude::hook::{
     deliver_to, parse_hook_input, serialize_envelope, ClaudeHookRecord, ClaudeIpcEnvelope,
-    DeliveryOutcome, ParseOutcome, ReceivedAt, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
+    DeliveryOutcome, ParseOutcome, ReceivedAt, MAX_ENVELOPE_BYTES, MAX_FIELD_BYTES,
     MAX_HOOK_INPUT_BYTES, MAX_SESSION_ID_LEN,
 };
 use dashboard::claude::listener::{ClaudeListener, ListenerError, MAX_CONCURRENT_CONNECTIONS};
@@ -317,14 +317,8 @@ async fn feature_hook_subprocess_writes_one_envelope_decoded_into_adapter_event(
         "canonical git toplevel project identity"
     );
     assert!(
-        matches!(
-            snapshot.attention,
-            AttentionState::NeedsYou {
-                question: false,
-                ..
-            }
-        ),
-        "SessionStart maps to NeedsYou (question: false): {:?}",
+        matches!(snapshot.attention, AttentionState::Idle { .. }),
+        "SessionStart maps to Idle: {:?}",
         snapshot.attention
     );
     assert_metadata_only(snapshot);
@@ -348,10 +342,15 @@ async fn feature_hook_subprocess_writes_one_envelope_decoded_into_adapter_event(
 async fn feature_hook_subprocess_drops_escaped_envelope_overflow() {
     let socket = TempSocket::new("escaped");
     let listener = UnixListener::bind(socket.path()).expect("bind test listener");
+    // A control character JSON-escapes to `\u00XX` (6 bytes) rather than 1,
+    // so one MAX_FIELD_BYTES-sized bounded field — which fits the field's
+    // own truncation bound, measured in raw bytes before escaping — is
+    // enough to blow the serialized-envelope bound (raised to 24 KiB).
     let payload = serde_json::json!({
-        "hook_event_name": "SessionStart",
+        "hook_event_name": "UserPromptSubmit",
         "session_id": "sess-escaped-overflow",
-        "cwd": "\"".repeat(MAX_CWD_LEN),
+        "cwd": "/w",
+        "prompt": "\u{1}".repeat(MAX_FIELD_BYTES),
     })
     .to_string();
 
@@ -404,7 +403,7 @@ async fn hook_dropped_inputs_exit_zero_with_no_frame_and_no_sentinel() {
         ),
         (
             "unknown",
-            br#"{"hook_event_name":"UserPromptSubmit","session_id":"s","cwd":"/w","prompt":"SENTINEL_PROMPT"}"#.to_vec(),
+            br#"{"hook_event_name":"WorktreeCreate","session_id":"s","cwd":"/w","prompt":"SENTINEL_PROMPT"}"#.to_vec(),
             "dropped (unknown event)",
         ),
         ("oversized", oversized.into_bytes(), "dropped (oversized input)"),

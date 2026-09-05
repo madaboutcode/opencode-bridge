@@ -228,9 +228,8 @@ async fn feature_real_socket_delivery_reaches_adapter_snapshot_and_gone() {
     );
     assert_eq!(
         first_snapshot.attention,
-        AttentionState::NeedsYou {
-            question: false,
-            turn_ended: ts(R1)
+        AttentionState::Idle {
+            last_update: ts(R1)
         }
     );
     assert_eq!(first_snapshot.created_at, ts(R1));

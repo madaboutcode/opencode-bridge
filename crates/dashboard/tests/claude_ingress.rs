@@ -413,8 +413,11 @@ async fn malformed_unknown_and_oversized_input_never_reach_the_socket() {
     let listener = bind_listener(&socket);
 
     assert_dropped("{ definitely not json", DropReason::MalformedInput);
+    // WorktreeCreate is a real Claude Code hook event outside the R13
+    // allowlist (`claude.md` R13) — reviewed and deliberately excluded, not
+    // one of the twelve activity events this dashboard accepts.
     assert_dropped(
-        "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"s\",\"cwd\":\"/w\",\"prompt\":\"SENTINEL_PROMPT\",\"tool_use_id\":\"SENTINEL_TOOL\"}",
+        "{\"hook_event_name\":\"WorktreeCreate\",\"session_id\":\"s\",\"cwd\":\"/w\",\"prompt\":\"SENTINEL_PROMPT\"}",
         DropReason::UnknownEvent,
     );
     let oversized = format!(
@@ -498,10 +501,16 @@ async fn maximum_bounded_record_fits_the_envelope_and_is_delivered() {
 async fn escaped_envelope_overflow_drops_before_any_ipc() {
     let socket = TempSocket::new("escaped-overflow");
     let listener = bind_listener(&socket);
+    // A control character JSON-escapes to `\u00XX` (6 bytes) rather than 1,
+    // so one MAX_FIELD_BYTES-sized bounded field — which fits the field's
+    // own truncation bound, measured in raw bytes before escaping — is
+    // enough to blow the serialized-envelope bound (raised to 24 KiB).
     let record = ClaudeHookRecord {
         session_id: "s".to_owned(),
-        cwd: "\"".repeat(claude_hook::MAX_CWD_LEN),
-        event: ClaudeEvent::SessionStart { source: None },
+        cwd: "/w".to_owned(),
+        event: ClaudeEvent::UserPromptSubmit {
+            prompt: "\u{1}".repeat(claude_hook::MAX_FIELD_BYTES),
+        },
         received_at: RECEIVED,
     };
 
@@ -616,7 +625,11 @@ async fn unknown_event_with_prompt_content_is_dropped_before_any_delivery() {
     let socket = TempSocket::new("unknown-prompt");
     let listener = bind_listener(&socket);
 
-    let payload = "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"SENTINEL_FILE\",\"prompt\":\"SENTINEL_TOOL_PROMPT\"},\"tool_response\":\"SENTINEL_RESPONSE\"}";
+    // TaskCreated is outside the R13 allowlist even though its payload looks
+    // just like an allowlisted PreToolUse payload — the event *name* alone
+    // decides, before any field (including one that would otherwise be
+    // allowlisted content) is ever read.
+    let payload = "{\"hook_event_name\":\"TaskCreated\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"SENTINEL_FILE\",\"prompt\":\"SENTINEL_TOOL_PROMPT\"},\"tool_response\":\"SENTINEL_RESPONSE\"}";
     assert_dropped(payload, DropReason::UnknownEvent);
 
     let frames = collect_frames(listener, 1, Duration::from_millis(300)).await;
@@ -687,7 +700,7 @@ async fn sentinels_never_appear_in_logs_or_wire_frames() {
         // Each dropped payload carries a distinct sentinel class; the
         // category-only log line must never include any of them.
         assert_dropped(
-            "{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s\",\"cwd\":\"/w\",\"prompt\":\"SENTINEL_PROMPT\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"SENTINEL_TOOL_INPUT\"},\"tool_response\":\"SENTINEL_TOOL_OUTPUT\"}",
+            "{\"hook_event_name\":\"TaskCreated\",\"session_id\":\"s\",\"cwd\":\"/w\",\"prompt\":\"SENTINEL_PROMPT\",\"tool_name\":\"Edit\",\"tool_input\":{\"file_path\":\"SENTINEL_TOOL_INPUT\"},\"tool_response\":\"SENTINEL_TOOL_OUTPUT\"}",
             DropReason::UnknownEvent,
         );
         assert_dropped(

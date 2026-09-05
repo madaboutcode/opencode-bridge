@@ -63,13 +63,14 @@ use state::ClaudeState;
 /// `SessionId` this module emits is keyed under it.
 pub(crate) const KIND: HarnessKind = HarnessKind("claude");
 
-/// The public hook/envelope APIs T04 needs, re-exported from the unchanged
-/// T02 `hook` module (`docs/specs/dashboard/claude.md` R13-R16).
+/// The public hook/envelope APIs the runtime needs, re-exported from the
+/// `hook` module (`docs/specs/dashboard/claude.md` R13-R16).
 pub use hook::{
     deliver, deliver_to, parse_hook_input, serialize_envelope, ClaudeEvent, ClaudeHookRecord,
     ClaudeIpcEnvelope, DeliveryOutcome, DropReason, EnvelopeSerializeError, ParseOutcome,
     ReceivedAt, SessionEndReason, SessionStartSource, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN,
-    MAX_ENVELOPE_BYTES, MAX_HOOK_INPUT_BYTES, MAX_SESSION_ID_LEN,
+    MAX_ENVELOPE_BYTES, MAX_FIELD_BYTES, MAX_HOOK_INPUT_BYTES, MAX_LABEL_LEN, MAX_SESSION_ID_LEN,
+    TRUNCATION_MARKER,
 };
 
 /// The public T03 wire decoder T04 calls after reading one socket line.
@@ -150,6 +151,7 @@ mod tests {
                 cwd: cwd.to_string(),
                 event: ClaudeEvent::SessionStart {
                     source: Some(SessionStartSource::Startup),
+                    model: None,
                 },
                 received_at: ReceivedAt(received_at),
             },
@@ -213,9 +215,8 @@ mod tests {
         assert_eq!(first_snapshot.project_id.as_path(), repo_root());
         assert_eq!(
             first_snapshot.attention,
-            AttentionState::NeedsYou {
-                question: false,
-                turn_ended: Timestamp::from_epoch_millis(R1 as i64),
+            AttentionState::Idle {
+                last_update: Timestamp::from_epoch_millis(R1 as i64),
             }
         );
         assert_eq!(
@@ -241,9 +242,8 @@ mod tests {
         );
         assert_eq!(
             second_snapshot.attention,
-            AttentionState::NeedsYou {
-                question: false,
-                turn_ended: Timestamp::from_epoch_millis(R2 as i64),
+            AttentionState::Idle {
+                last_update: Timestamp::from_epoch_millis(R2 as i64),
             }
         );
 
