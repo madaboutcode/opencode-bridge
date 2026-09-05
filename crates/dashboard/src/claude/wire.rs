@@ -50,11 +50,10 @@
 //!   - Open sockets, touch Claude configuration or transcripts, retain raw
 //!     JSON, or accept any protocol other than version 1.
 
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use super::hook::{
-    ClaudeEvent, ClaudeHookRecord, ClaudeIpcEnvelope, ReceivedAt, SessionEndReason,
-    SessionStartSource, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
+    ClaudeEvent, ClaudeIpcEnvelope, ENVELOPE_PROTOCOL_VERSION, MAX_CWD_LEN, MAX_ENVELOPE_BYTES,
     MAX_LABEL_LEN, MAX_SESSION_ID_LEN,
 };
 
@@ -127,267 +126,152 @@ pub fn decode_envelope(line: &str) -> Result<ClaudeIpcEnvelope, DecodeError> {
         return Err(DecodeError::UnknownVersion);
     }
 
-    let record = raw
+    let event = raw
         .get("record")
         .and_then(Value::as_object)
-        .ok_or(DecodeError::Malformed)?;
-
-    let session_id = record
-        .get("session_id")
-        .and_then(Value::as_str)
-        .ok_or(DecodeError::Malformed)?;
-    if !valid_session_id(session_id) {
-        return Err(DecodeError::OutOfBounds);
-    }
-
-    let cwd = record
-        .get("cwd")
-        .and_then(Value::as_str)
-        .ok_or(DecodeError::Malformed)?;
-    if !valid_cwd(cwd) {
-        return Err(DecodeError::OutOfBounds);
-    }
-
-    // received_at must fit the shared snapshot `Timestamp` (i64 epoch millis);
-    // a value beyond that range cannot be represented at the provider-neutral
-    // boundary, so it is an out-of-bounds rejection rather than a silent wrap.
-    let received_at = record
-        .get("received_at")
-        .and_then(Value::as_u64)
-        .ok_or(DecodeError::Malformed)?;
-    if received_at > i64::MAX as u64 {
-        return Err(DecodeError::OutOfBounds);
-    }
-
-    let event = record
-        .get("event")
+        .and_then(|record| record.get("event"))
         .and_then(Value::as_object)
         .ok_or(DecodeError::Malformed)?;
     let kind = event
         .get("kind")
         .and_then(Value::as_str)
         .ok_or(DecodeError::Malformed)?;
-    let event = decode_event(kind, event)?;
-
-    Ok(ClaudeIpcEnvelope {
-        protocol_version: ENVELOPE_PROTOCOL_VERSION,
-        record: ClaudeHookRecord {
-            session_id: session_id.to_owned(),
-            cwd: cwd.to_owned(),
-            event,
-            received_at: ReceivedAt(received_at),
-        },
-    })
-}
-
-fn decode_event(kind: &str, event: &Map<String, Value>) -> Result<ClaudeEvent, DecodeError> {
-    match kind {
-        "session_start" => {
-            let source = match event.get("source") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(label)) => {
-                    Some(SessionStartSource::parse(label).ok_or(DecodeError::Malformed)?)
-                }
-                Some(_) => return Err(DecodeError::Malformed),
-            };
-            let model = read_optional_label(event, "model")?;
-            Ok(ClaudeEvent::SessionStart { source, model })
-        }
-        "user_prompt_submit" => {
-            let prompt = read_required_text(event, "prompt")?;
-            Ok(ClaudeEvent::UserPromptSubmit { prompt })
-        }
-        "pre_tool_use" => {
-            let tool_name = read_required_label(event, "tool_name")?;
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let tool_input = read_required_text(event, "tool_input")?;
-            let agent_id = read_optional_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            Ok(ClaudeEvent::PreToolUse {
-                tool_name,
-                tool_use_id,
-                tool_input,
-                agent_id,
-                agent_type,
-            })
-        }
-        "post_tool_use" => {
-            let tool_name = read_required_label(event, "tool_name")?;
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let tool_input = read_required_text(event, "tool_input")?;
-            let tool_response = read_required_text(event, "tool_response")?;
-            let agent_id = read_optional_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            Ok(ClaudeEvent::PostToolUse {
-                tool_name,
-                tool_use_id,
-                tool_input,
-                tool_response,
-                agent_id,
-                agent_type,
-            })
-        }
-        "post_tool_use_failure" => {
-            let tool_name = read_required_label(event, "tool_name")?;
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let tool_input = read_required_text(event, "tool_input")?;
-            let error = read_required_text(event, "error")?;
-            let error_type = read_optional_label(event, "error_type")?;
-            let agent_id = read_optional_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            Ok(ClaudeEvent::PostToolUseFailure {
-                tool_name,
-                tool_use_id,
-                tool_input,
-                error,
-                error_type,
-                agent_id,
-                agent_type,
-            })
-        }
-        "permission_request" => {
-            let tool_name = read_required_label(event, "tool_name")?;
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let tool_input = read_required_text(event, "tool_input")?;
-            Ok(ClaudeEvent::PermissionRequest {
-                tool_name,
-                tool_use_id,
-                tool_input,
-            })
-        }
-        "permission_denied" => {
-            let tool_name = read_required_label(event, "tool_name")?;
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let denial_reason = read_optional_text(event, "denial_reason")?;
-            Ok(ClaudeEvent::PermissionDenied {
-                tool_name,
-                tool_use_id,
-                denial_reason,
-            })
-        }
-        "elicitation" => {
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let server_name = read_required_label(event, "server_name")?;
-            let elicitation_request = read_required_text(event, "elicitation_request")?;
-            Ok(ClaudeEvent::Elicitation {
-                tool_use_id,
-                server_name,
-                elicitation_request,
-            })
-        }
-        "elicitation_result" => {
-            let tool_use_id = read_required_label(event, "tool_use_id")?;
-            let server_name = read_required_label(event, "server_name")?;
-            let user_response = read_required_text(event, "user_response")?;
-            Ok(ClaudeEvent::ElicitationResult {
-                tool_use_id,
-                server_name,
-                user_response,
-            })
-        }
-        "notification" => {
-            let notification_type = read_optional_label(event, "notification_type")?;
-            let notification_message = read_required_text(event, "notification_message")?;
-            Ok(ClaudeEvent::Notification {
-                notification_type,
-                notification_message,
-            })
-        }
-        "stop" => {
-            let last_assistant_message = read_required_text(event, "last_assistant_message")?;
-            let agent_id = read_optional_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            Ok(ClaudeEvent::Stop {
-                last_assistant_message,
-                agent_id,
-                agent_type,
-            })
-        }
-        "stop_failure" => {
-            let error_type = read_optional_label(event, "error_type")?;
-            Ok(ClaudeEvent::StopFailure { error_type })
-        }
-        "subagent_start" => {
-            let agent_id = read_required_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            let agent_prompt = read_required_text(event, "agent_prompt")?;
-            Ok(ClaudeEvent::SubagentStart {
-                agent_id,
-                agent_type,
-                agent_prompt,
-            })
-        }
-        "subagent_stop" => {
-            let agent_id = read_required_label(event, "agent_id")?;
-            let agent_type = read_optional_label(event, "agent_type")?;
-            let last_assistant_message = read_required_text(event, "last_assistant_message")?;
-            let stop_reason = read_optional_label(event, "stop_reason")?;
-            Ok(ClaudeEvent::SubagentStop {
-                agent_id,
-                agent_type,
-                last_assistant_message,
-                stop_reason,
-            })
-        }
-        "session_end" => {
-            let reason = match event.get("reason") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(label)) => {
-                    Some(SessionEndReason::parse(label).ok_or(DecodeError::Malformed)?)
-                }
-                Some(_) => return Err(DecodeError::Malformed),
-            };
-            Ok(ClaudeEvent::SessionEnd { reason })
-        }
-        _ => Err(DecodeError::UnknownEvent),
+    if !is_known_kind(kind) {
+        return Err(DecodeError::UnknownEvent);
     }
+
+    let envelope: ClaudeIpcEnvelope =
+        serde_json::from_value(raw).map_err(|_| DecodeError::Malformed)?;
+    validate_bounds(&envelope)
 }
 
-/// Reads a required "(bounded)" text field: present and a JSON string. No
-/// additional length re-check — the overall envelope size bound already
-/// gates total wire size, and `hook` truncates before it ever writes.
-fn read_required_text(event: &Map<String, Value>, key: &str) -> Result<String, DecodeError> {
-    event
-        .get(key)
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or(DecodeError::Malformed)
+fn is_known_kind(kind: &str) -> bool {
+    matches!(
+        kind,
+        "session_start"
+            | "user_prompt_submit"
+            | "pre_tool_use"
+            | "post_tool_use"
+            | "post_tool_use_failure"
+            | "permission_request"
+            | "permission_denied"
+            | "elicitation"
+            | "elicitation_result"
+            | "notification"
+            | "stop"
+            | "stop_failure"
+            | "subagent_start"
+            | "subagent_stop"
+            | "session_end"
+    )
 }
 
-/// Reads an optional "(bounded)" text field: absent/null is `None`; present
-/// must be a JSON string. `denial_reason` is the only field of this shape
-/// (`claude.md` R14). No length re-check, matching `read_required_text`.
-fn read_optional_text(
-    event: &Map<String, Value>,
-    key: &str,
-) -> Result<Option<String>, DecodeError> {
-    match event.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) => Ok(Some(value.clone())),
-        Some(_) => Err(DecodeError::Malformed),
+fn validate_bounds(envelope: &ClaudeIpcEnvelope) -> Result<ClaudeIpcEnvelope, DecodeError> {
+    let record = &envelope.record;
+    if !valid_session_id(&record.session_id) || !valid_cwd(&record.cwd) {
+        return Err(DecodeError::OutOfBounds);
     }
-}
-
-fn valid_label(value: &str) -> bool {
-    value.len() <= MAX_LABEL_LEN
-}
-
-fn read_required_label(event: &Map<String, Value>, key: &str) -> Result<String, DecodeError> {
-    match event.get(key) {
-        Some(Value::String(value)) if valid_label(value) => Ok(value.clone()),
-        _ => Err(DecodeError::Malformed),
+    if record.received_at.0 > i64::MAX as u64 {
+        return Err(DecodeError::OutOfBounds);
     }
-}
-
-fn read_optional_label(
-    event: &Map<String, Value>,
-    key: &str,
-) -> Result<Option<String>, DecodeError> {
-    match event.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(Value::String(value)) if valid_label(value) => Ok(Some(value.clone())),
-        Some(_) => Err(DecodeError::Malformed),
+    let valid_label = |value: &str| value.len() <= MAX_LABEL_LEN;
+    let labels_valid = match &record.event {
+        ClaudeEvent::SessionStart { model, .. } => {
+            model.as_ref().map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::UserPromptSubmit { .. } => true,
+        ClaudeEvent::PreToolUse {
+            tool_name,
+            tool_use_id,
+            agent_id,
+            agent_type,
+            ..
+        }
+        | ClaudeEvent::PostToolUse {
+            tool_name,
+            tool_use_id,
+            agent_id,
+            agent_type,
+            ..
+        } => {
+            valid_label(tool_name)
+                && valid_label(tool_use_id)
+                && agent_id.as_ref().map_or(true, |value| valid_label(value))
+                && agent_type.as_ref().map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::PostToolUseFailure {
+            tool_name,
+            tool_use_id,
+            error_type,
+            agent_id,
+            agent_type,
+            ..
+        } => {
+            valid_label(tool_name)
+                && valid_label(tool_use_id)
+                && error_type.as_ref().map_or(true, |value| valid_label(value))
+                && agent_id.as_ref().map_or(true, |value| valid_label(value))
+                && agent_type.as_ref().map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::PermissionRequest {
+            tool_name,
+            tool_use_id,
+            ..
+        }
+        | ClaudeEvent::PermissionDenied {
+            tool_name,
+            tool_use_id,
+            ..
+        } => valid_label(tool_name) && valid_label(tool_use_id),
+        ClaudeEvent::Elicitation {
+            tool_use_id,
+            server_name,
+            ..
+        }
+        | ClaudeEvent::ElicitationResult {
+            tool_use_id,
+            server_name,
+            ..
+        } => valid_label(tool_use_id) && valid_label(server_name),
+        ClaudeEvent::Notification {
+            notification_type, ..
+        } => notification_type
+            .as_ref()
+            .map_or(true, |value| valid_label(value)),
+        ClaudeEvent::Stop {
+            agent_id,
+            agent_type,
+            ..
+        } => {
+            agent_id.as_ref().map_or(true, |value| valid_label(value))
+                && agent_type.as_ref().map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::StopFailure { error_type } => {
+            error_type.as_ref().map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::SubagentStart {
+            agent_id,
+            agent_type,
+            ..
+        } => valid_label(agent_id) && agent_type.as_ref().map_or(true, |value| valid_label(value)),
+        ClaudeEvent::SubagentStop {
+            agent_id,
+            agent_type,
+            stop_reason,
+            ..
+        } => {
+            valid_label(agent_id)
+                && agent_type.as_ref().map_or(true, |value| valid_label(value))
+                && stop_reason
+                    .as_ref()
+                    .map_or(true, |value| valid_label(value))
+        }
+        ClaudeEvent::SessionEnd { .. } => true,
+    };
+    if !labels_valid {
+        return Err(DecodeError::OutOfBounds);
     }
+    Ok(envelope.clone())
 }
 
 fn valid_session_id(value: &str) -> bool {
@@ -402,7 +286,8 @@ fn valid_cwd(value: &str) -> bool {
 mod tests {
     use super::*;
     use crate::claude::hook::{
-        parse_hook_input, serialize_envelope, ParseOutcome, MAX_HOOK_INPUT_BYTES,
+        parse_hook_input, serialize_envelope, ClaudeHookRecord, ParseOutcome, ReceivedAt,
+        SessionEndReason, SessionStartSource, MAX_HOOK_INPUT_BYTES,
     };
 
     const RECEIVED: u64 = 1_700_000_000_000;
@@ -609,6 +494,274 @@ mod tests {
         }
     }
 
+    fn assert_optional_fixture(
+        input: String,
+        expected_event: ClaudeEvent,
+        optional_fields: &[(&str, bool)],
+    ) {
+        let line = serialize_envelope(&accepted(&input)).expect("ordinary envelope must fit");
+        assert!(line.ends_with('\n'));
+        assert!(!line[..line.len() - 1].contains('\n'));
+        let wire: Value = serde_json::from_str(line.trim_end_matches('\n')).expect("valid wire");
+        let event = wire["record"]["event"].as_object().expect("event object");
+        for (field, present) in optional_fields {
+            assert_eq!(
+                event.contains_key(*field),
+                *present,
+                "field {field:?} in {line}"
+            );
+        }
+
+        let expected = ClaudeIpcEnvelope {
+            protocol_version: ENVELOPE_PROTOCOL_VERSION,
+            record: ClaudeHookRecord {
+                session_id: "s".to_owned(),
+                cwd: "/w".to_owned(),
+                event: expected_event,
+                received_at: ReceivedAt(RECEIVED),
+            },
+        };
+        let decoded = decode_envelope(&line).expect("decode optional fixture");
+        assert_eq!(decoded, expected, "input {input}");
+
+        // The hook serializer omits None, so mutate the already serialized
+        // envelope to exercise serde's explicit-null Option decoding directly.
+        for (field, _) in optional_fields {
+            let mut null_wire: Value =
+                serde_json::from_str(line.trim_end_matches('\n')).expect("valid wire");
+            null_wire["record"]["event"][*field] = Value::Null;
+            let null_line = format!("{}\n", serde_json::to_string(&null_wire).unwrap());
+
+            let mut null_expected = expected.clone();
+            let mut null_event =
+                serde_json::to_value(&null_expected.record.event).expect("typed event JSON");
+            null_event[field] = Value::Null;
+            null_expected.record.event =
+                serde_json::from_value(null_event).expect("null optional field is valid");
+
+            assert_eq!(
+                decode_envelope(&null_line).expect("decode explicit-null fixture"),
+                null_expected,
+                "explicit null for {field:?} in {null_line}"
+            );
+        }
+    }
+
+    type OptionalFixture = (String, ClaudeEvent, Vec<(&'static str, bool)>);
+
+    #[test]
+    fn every_optional_combination_round_trips_and_omits_none() {
+        let optional = |key: &str, value: &str, present: bool| {
+            if present {
+                format!(",\"{key}\":\"{value}\"")
+            } else {
+                String::new()
+            }
+        };
+        let mut cases: Vec<OptionalFixture> = Vec::new();
+
+        for source_present in [false, true] {
+            for model_present in [false, true] {
+                cases.push((
+                    format!(
+                        "{{\"hook_event_name\":\"SessionStart\",\"session_id\":\"s\",\"cwd\":\"/w\"{}{}{}",
+                        optional("source", "resume", source_present),
+                        optional("model", "model-a", model_present),
+                        "}"
+                    ),
+                    ClaudeEvent::SessionStart {
+                        source: source_present.then_some(SessionStartSource::Resume),
+                        model: model_present.then_some("model-a".to_owned()),
+                    },
+                    vec![("source", source_present), ("model", model_present)],
+                ));
+            }
+        }
+
+        for (agent_id_present, agent_type_present) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let fields = format!(
+                "{}{}",
+                optional("agent_id", "agent-a", agent_id_present),
+                optional("agent_type", "worker", agent_type_present)
+            );
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"PreToolUse\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_use_id\":\"c1\",\"tool_input\":{{}}{fields}}}"
+                ),
+                ClaudeEvent::PreToolUse {
+                    tool_name: "Edit".to_owned(),
+                    tool_use_id: "c1".to_owned(),
+                    tool_input: "{}".to_owned(),
+                    agent_id: agent_id_present.then_some("agent-a".to_owned()),
+                    agent_type: agent_type_present.then_some("worker".to_owned()),
+                },
+                vec![("agent_id", agent_id_present), ("agent_type", agent_type_present)],
+            ));
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"PostToolUse\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_use_id\":\"c2\",\"tool_input\":{{}},\"tool_response\":\"ok\"{fields}}}"
+                ),
+                ClaudeEvent::PostToolUse {
+                    tool_name: "Edit".to_owned(),
+                    tool_use_id: "c2".to_owned(),
+                    tool_input: "{}".to_owned(),
+                    tool_response: "ok".to_owned(),
+                    agent_id: agent_id_present.then_some("agent-a".to_owned()),
+                    agent_type: agent_type_present.then_some("worker".to_owned()),
+                },
+                vec![("agent_id", agent_id_present), ("agent_type", agent_type_present)],
+            ));
+        }
+
+        for (error_type_present, agent_id_present, agent_type_present) in [
+            (false, false, false),
+            (false, false, true),
+            (false, true, false),
+            (false, true, true),
+            (true, false, false),
+            (true, false, true),
+            (true, true, false),
+            (true, true, true),
+        ] {
+            let fields = format!(
+                "{}{}{}",
+                optional("error_type", "tool-error", error_type_present),
+                optional("agent_id", "agent-a", agent_id_present),
+                optional("agent_type", "worker", agent_type_present)
+            );
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"PostToolUseFailure\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_use_id\":\"c3\",\"tool_input\":{{}},\"error\":\"boom\"{fields}}}"
+                ),
+                ClaudeEvent::PostToolUseFailure {
+                    tool_name: "Edit".to_owned(),
+                    tool_use_id: "c3".to_owned(),
+                    tool_input: "{}".to_owned(),
+                    error: "boom".to_owned(),
+                    error_type: error_type_present.then_some("tool-error".to_owned()),
+                    agent_id: agent_id_present.then_some("agent-a".to_owned()),
+                    agent_type: agent_type_present.then_some("worker".to_owned()),
+                },
+                vec![
+                    ("error_type", error_type_present),
+                    ("agent_id", agent_id_present),
+                    ("agent_type", agent_type_present),
+                ],
+            ));
+        }
+
+        for present in [false, true] {
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"PermissionDenied\",\"session_id\":\"s\",\"cwd\":\"/w\",\"tool_name\":\"Edit\",\"tool_use_id\":\"c4\"{}}}",
+                    optional("denial_reason", "policy", present)
+                ),
+                ClaudeEvent::PermissionDenied {
+                    tool_name: "Edit".to_owned(),
+                    tool_use_id: "c4".to_owned(),
+                    denial_reason: present.then_some("policy".to_owned()),
+                },
+                vec![("denial_reason", present)],
+            ));
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"Notification\",\"session_id\":\"s\",\"cwd\":\"/w\"{},\"notification_message\":\"waiting\"}}",
+                    optional("notification_type", "permission", present)
+                ),
+                ClaudeEvent::Notification {
+                    notification_type: present.then_some("permission".to_owned()),
+                    notification_message: "waiting".to_owned(),
+                },
+                vec![("notification_type", present)],
+            ));
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"StopFailure\",\"session_id\":\"s\",\"cwd\":\"/w\"{}}}",
+                    optional("error_type", "timeout", present)
+                ),
+                ClaudeEvent::StopFailure {
+                    error_type: present.then_some("timeout".to_owned()),
+                },
+                vec![("error_type", present)],
+            ));
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"SubagentStart\",\"session_id\":\"s\",\"cwd\":\"/w\",\"agent_id\":\"agent-a\"{},\"agent_prompt\":\"investigate\"}}",
+                    optional("agent_type", "worker", present)
+                ),
+                ClaudeEvent::SubagentStart {
+                    agent_id: "agent-a".to_owned(),
+                    agent_type: present.then_some("worker".to_owned()),
+                    agent_prompt: "investigate".to_owned(),
+                },
+                vec![("agent_type", present)],
+            ));
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"SessionEnd\",\"session_id\":\"s\",\"cwd\":\"/w\"{}}}",
+                    optional("reason", "other", present)
+                ),
+                ClaudeEvent::SessionEnd {
+                    reason: present.then_some(SessionEndReason::Other),
+                },
+                vec![("reason", present)],
+            ));
+        }
+
+        for (agent_type_present, stop_reason_present) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let fields = format!(
+                "{}{}",
+                optional("agent_type", "worker", agent_type_present),
+                optional("stop_reason", "completed", stop_reason_present)
+            );
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"SubagentStop\",\"session_id\":\"s\",\"cwd\":\"/w\",\"agent_id\":\"agent-a\",\"last_assistant_message\":\"done\"{fields}}}"
+                ),
+                ClaudeEvent::SubagentStop {
+                    agent_id: "agent-a".to_owned(),
+                    agent_type: agent_type_present.then_some("worker".to_owned()),
+                    last_assistant_message: "done".to_owned(),
+                    stop_reason: stop_reason_present.then_some("completed".to_owned()),
+                },
+                vec![
+                    ("agent_type", agent_type_present),
+                    ("stop_reason", stop_reason_present),
+                ],
+            ));
+        }
+
+        for (agent_id_present, agent_type_present) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let fields = format!(
+                "{}{}",
+                optional("agent_id", "agent-a", agent_id_present),
+                optional("agent_type", "worker", agent_type_present)
+            );
+            cases.push((
+                format!(
+                    "{{\"hook_event_name\":\"Stop\",\"session_id\":\"s\",\"cwd\":\"/w\",\"last_assistant_message\":\"done\"{fields}}}"
+                ),
+                ClaudeEvent::Stop {
+                    last_assistant_message: "done".to_owned(),
+                    agent_id: agent_id_present.then_some("agent-a".to_owned()),
+                    agent_type: agent_type_present.then_some("worker".to_owned()),
+                },
+                vec![("agent_id", agent_id_present), ("agent_type", agent_type_present)],
+            ));
+        }
+
+        assert_eq!(cases.len(), 38);
+        for (input, expected, optional_fields) in cases {
+            assert_optional_fixture(input, expected, &optional_fields);
+        }
+    }
+
     #[test]
     fn malformed_json_and_shapes_are_rejected() {
         for line in [
@@ -694,7 +847,7 @@ mod tests {
             &format!(
                 "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{{\"kind\":\"pre_tool_use\",\"tool_name\":\"{long_label}\",\"tool_use_id\":\"c\",\"tool_input\":\"{{}}\"}},\"received_at\":1}}}}"
             ),
-            DecodeError::Malformed,
+            DecodeError::OutOfBounds,
         );
         // stop_failure's sensitive label (hook never emits it) is never read:
         // the kind still decodes, and the label exists nowhere on the result.
@@ -794,5 +947,85 @@ mod tests {
         let err = decode_envelope(&line).unwrap_err();
         assert_eq!(err, DecodeError::UnknownEvent);
         assert!(!format!("{err:?}").contains("SENTINEL"));
+    }
+
+    #[test]
+    fn duplicate_keys_use_the_final_value_at_each_wire_object_level() {
+        let base = "\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"received_at\":1";
+        let root =
+            format!("{{\"protocol_version\":2,\"protocol_version\":1,\"record\":{{{base}}}}}");
+        assert!(decode_envelope(&root).is_ok());
+
+        let root_record = "{\"protocol_version\":1,\"record\":{\"session_id\":\"discarded\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"received_at\":1},\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"received_at\":1}}";
+        assert_eq!(decode_envelope(root_record).unwrap().record.session_id, "s");
+
+        let record = format!(
+            "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"discarded\",\"session_id\":\"s\",{base}}}}}"
+        );
+        assert_eq!(decode_envelope(&record).unwrap().record.session_id, "s");
+
+        let event = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\",\"model\":\"first\",\"model\":\"last\"},\"received_at\":1}}";
+        let decoded = decode_envelope(event).unwrap();
+        assert_eq!(
+            decoded.record.event,
+            ClaudeEvent::SessionStart {
+                source: None,
+                model: Some("last".to_owned())
+            }
+        );
+
+        let record_event = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\"},\"event\":{\"kind\":\"session_end\"},\"received_at\":1}}";
+        assert_eq!(
+            decode_envelope(record_event).unwrap().record.event,
+            ClaudeEvent::SessionEnd { reason: None }
+        );
+
+        let known_kind = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"unknown\",\"kind\":\"session_start\"},\"received_at\":1}}";
+        assert!(decode_envelope(known_kind).is_ok());
+        let unknown_kind = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"session_start\",\"kind\":\"unknown\"},\"received_at\":1}}";
+        assert_rejected(unknown_kind, DecodeError::UnknownEvent);
+    }
+
+    #[test]
+    fn duplicate_typed_fields_keep_the_last_value() {
+        let line = "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"pre_tool_use\",\"tool_name\":\"first\",\"tool_name\":\"last\",\"tool_use_id\":\"id\",\"tool_input\":\"{}\"},\"received_at\":1}}";
+        let decoded = decode_envelope(line).unwrap();
+        let ClaudeEvent::PreToolUse { tool_name, .. } = decoded.record.event else {
+            panic!("expected pre_tool_use");
+        };
+        assert_eq!(tool_name, "last");
+    }
+
+    #[test]
+    fn serde_json_recursion_boundary_is_128_containers() {
+        fn nested(depth: usize) -> String {
+            let mut value = "0".to_owned();
+            for _ in 0..depth {
+                value = format!("[{value}]");
+            }
+            value
+        }
+        // serde_json's default limit is reached when attempting the 128th
+        // nested container (the deepest successfully parsed value is 127).
+        // This is intentionally measured against the library's unchanged
+        // parser policy rather than raising the limit for the envelope.
+        for (depth, expected) in [(127, true), (128, false)] {
+            let parsed: Result<Value, _> = serde_json::from_str(&nested(depth));
+            assert_eq!(parsed.is_ok(), expected, "standalone depth {depth}");
+        }
+
+        // The envelope itself consumes parser levels before the ignored extra
+        // value is reached. Its first failing depth must still be category-only.
+        for (depth, expected) in [(125, true), (126, false)] {
+            let line = format!(
+                "{{\"protocol_version\":1,\"record\":{{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{{\"kind\":\"session_start\"}},\"received_at\":1,\"extra\":{}}}}}",
+                nested(depth)
+            );
+            assert!(line.len() < MAX_ENVELOPE_BYTES);
+            assert_eq!(decode_envelope(&line).is_ok(), expected);
+            if !expected {
+                assert_eq!(decode_envelope(&line), Err(DecodeError::Malformed));
+            }
+        }
     }
 }

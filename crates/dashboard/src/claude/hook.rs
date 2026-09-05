@@ -87,7 +87,8 @@ use std::os::unix::fs::FileTypeExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use serde_json::{Map, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use tokio::io::AsyncWriteExt;
 use tokio::net::UnixStream;
 use tokio::time::timeout;
@@ -155,7 +156,7 @@ pub const SOCKET_ENV_VAR: &str = "DASHBOARD_CLAUDE_SOCKET";
 /// Local time a hook payload was received, Unix epoch milliseconds. The
 /// record's only timestamp — never a Claude transcript timestamp
 /// (`claude.md` R14: only local receipt time crosses the boundary).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ReceivedAt(pub u64);
 
 impl ReceivedAt {
@@ -175,7 +176,8 @@ impl ReceivedAt {
 /// Session-start source (`claude.md` R13/R14). Values from the T01c
 /// evidence baseline (`redacted-schemas.md`): `startup` was directly
 /// observed; the rest are documented values of the same closed enum.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SessionStartSource {
     Startup,
     Resume,
@@ -196,6 +198,7 @@ impl SessionStartSource {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Startup => "startup",
@@ -210,7 +213,8 @@ impl SessionStartSource {
 /// Session-end reason (`claude.md` R13/R14). Values from the T01c evidence
 /// baseline (EVIDENCE.md S4): `other` was observed; `clear`, `resume`,
 /// `logout`, `prompt_input_exit` are the documented siblings.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SessionEndReason {
     Clear,
     Resume,
@@ -231,6 +235,7 @@ impl SessionEndReason {
         }
     }
 
+    #[allow(dead_code)]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Clear => "clear",
@@ -247,10 +252,13 @@ impl SessionEndReason {
 /// else ever gets this far. Fields marked "(bounded)" in R14 are already
 /// truncated by the time they reach here; short labels are already
 /// length-validated.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ClaudeEvent {
     SessionStart {
+        #[serde(skip_serializing_if = "Option::is_none")]
         source: Option<SessionStartSource>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         model: Option<String>,
     },
     UserPromptSubmit {
@@ -260,7 +268,9 @@ pub enum ClaudeEvent {
         tool_name: String,
         tool_use_id: String,
         tool_input: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
     },
     PostToolUse {
@@ -268,7 +278,9 @@ pub enum ClaudeEvent {
         tool_use_id: String,
         tool_input: String,
         tool_response: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
     },
     PostToolUseFailure {
@@ -276,8 +288,11 @@ pub enum ClaudeEvent {
         tool_use_id: String,
         tool_input: String,
         error: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         error_type: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
     },
     PermissionRequest {
@@ -288,6 +303,7 @@ pub enum ClaudeEvent {
     PermissionDenied {
         tool_name: String,
         tool_use_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         denial_reason: Option<String>,
     },
     Elicitation {
@@ -301,35 +317,44 @@ pub enum ClaudeEvent {
         user_response: String,
     },
     Notification {
+        #[serde(skip_serializing_if = "Option::is_none")]
         notification_type: Option<String>,
         notification_message: String,
     },
     Stop {
         last_assistant_message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
     },
     StopFailure {
+        #[serde(skip_serializing_if = "Option::is_none")]
         error_type: Option<String>,
     },
     SubagentStart {
         agent_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
         agent_prompt: String,
     },
     SubagentStop {
         agent_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_type: Option<String>,
         last_assistant_message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
         stop_reason: Option<String>,
     },
     SessionEnd {
+        #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<SessionEndReason>,
     },
 }
 
 impl ClaudeEvent {
     /// Stable wire label for this event kind (`claude.md` R15 envelope).
+    #[allow(dead_code)]
     pub fn kind(&self) -> &'static str {
         match self {
             Self::SessionStart { .. } => "session_start",
@@ -392,7 +417,7 @@ impl ClaudeEvent {
 /// The internal allowlisted record (`claude.md` R13-R14). Built only from
 /// `parse_hook_input`; contains no `serde_json::Value` and no rejected
 /// field. This is what `claude::state` maps into snapshot types.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeHookRecord {
     pub session_id: String,
     pub cwd: String,
@@ -403,7 +428,7 @@ pub struct ClaudeHookRecord {
 /// Versioned local IPC envelope (`claude.md` R15): one bounded JSON object,
 /// newline-delimited on the wire, carrying a protocol version and one
 /// record. No raw hook JSON is ever inside it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ClaudeIpcEnvelope {
     pub protocol_version: u32,
     pub record: ClaudeHookRecord,
@@ -420,7 +445,7 @@ impl ClaudeIpcEnvelope {
     /// The wire form: one JSON object plus a trailing newline, when it fits
     /// the complete serialized-envelope bound.
     pub fn to_wire(&self) -> Result<String, EnvelopeSerializeError> {
-        let mut out = serde_json::to_string(&envelope_to_value(self))
+        let mut out = serde_json::to_string(self)
             .expect("envelope serialization cannot fail: all fields are plain JSON values");
         out.push('\n');
         if out.len() > MAX_ENVELOPE_BYTES {
@@ -616,8 +641,7 @@ fn read_optional_text(raw: &Value, key: &str) -> Result<Option<String>, DropReas
 fn read_tool_input(raw: &Value) -> Result<String, DropReason> {
     match raw.get("tool_input") {
         Some(value @ Value::Object(_)) => {
-            let serialized =
-                serde_json::to_string(value).expect("a JSON object always serializes");
+            let serialized = serde_json::to_string(value).expect("a JSON object always serializes");
             Ok(bounded_text(&serialized))
         }
         _ => Err(DropReason::MalformedInput),
@@ -984,255 +1008,6 @@ pub fn claude_socket_path() -> Option<PathBuf> {
     None
 }
 
-fn envelope_to_value(envelope: &ClaudeIpcEnvelope) -> Value {
-    let record = &envelope.record;
-
-    let mut event = Map::new();
-    event.insert("kind".to_string(), Value::from(record.event.kind()));
-    match &record.event {
-        ClaudeEvent::SessionStart { source, model } => {
-            if let Some(source) = source {
-                event.insert("source".to_string(), Value::from(source.as_str()));
-            }
-            if let Some(model) = model {
-                event.insert("model".to_string(), Value::from(model.as_str()));
-            }
-        }
-        ClaudeEvent::UserPromptSubmit { prompt } => {
-            event.insert("prompt".to_string(), Value::from(prompt.as_str()));
-        }
-        ClaudeEvent::PreToolUse {
-            tool_name,
-            tool_use_id,
-            tool_input,
-            agent_id,
-            agent_type,
-        } => {
-            event.insert("tool_name".to_string(), Value::from(tool_name.as_str()));
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert("tool_input".to_string(), Value::from(tool_input.as_str()));
-            if let Some(agent_id) = agent_id {
-                event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            }
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-        }
-        ClaudeEvent::PostToolUse {
-            tool_name,
-            tool_use_id,
-            tool_input,
-            tool_response,
-            agent_id,
-            agent_type,
-        } => {
-            event.insert("tool_name".to_string(), Value::from(tool_name.as_str()));
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert("tool_input".to_string(), Value::from(tool_input.as_str()));
-            event.insert(
-                "tool_response".to_string(),
-                Value::from(tool_response.as_str()),
-            );
-            if let Some(agent_id) = agent_id {
-                event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            }
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-        }
-        ClaudeEvent::PostToolUseFailure {
-            tool_name,
-            tool_use_id,
-            tool_input,
-            error,
-            error_type,
-            agent_id,
-            agent_type,
-        } => {
-            event.insert("tool_name".to_string(), Value::from(tool_name.as_str()));
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert("tool_input".to_string(), Value::from(tool_input.as_str()));
-            event.insert("error".to_string(), Value::from(error.as_str()));
-            if let Some(error_type) = error_type {
-                event.insert("error_type".to_string(), Value::from(error_type.as_str()));
-            }
-            if let Some(agent_id) = agent_id {
-                event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            }
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-        }
-        ClaudeEvent::PermissionRequest {
-            tool_name,
-            tool_use_id,
-            tool_input,
-        } => {
-            event.insert("tool_name".to_string(), Value::from(tool_name.as_str()));
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert("tool_input".to_string(), Value::from(tool_input.as_str()));
-        }
-        ClaudeEvent::PermissionDenied {
-            tool_name,
-            tool_use_id,
-            denial_reason,
-        } => {
-            event.insert("tool_name".to_string(), Value::from(tool_name.as_str()));
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            if let Some(denial_reason) = denial_reason {
-                event.insert(
-                    "denial_reason".to_string(),
-                    Value::from(denial_reason.as_str()),
-                );
-            }
-        }
-        ClaudeEvent::Elicitation {
-            tool_use_id,
-            server_name,
-            elicitation_request,
-        } => {
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert(
-                "server_name".to_string(),
-                Value::from(server_name.as_str()),
-            );
-            event.insert(
-                "elicitation_request".to_string(),
-                Value::from(elicitation_request.as_str()),
-            );
-        }
-        ClaudeEvent::ElicitationResult {
-            tool_use_id,
-            server_name,
-            user_response,
-        } => {
-            event.insert(
-                "tool_use_id".to_string(),
-                Value::from(tool_use_id.as_str()),
-            );
-            event.insert(
-                "server_name".to_string(),
-                Value::from(server_name.as_str()),
-            );
-            event.insert(
-                "user_response".to_string(),
-                Value::from(user_response.as_str()),
-            );
-        }
-        ClaudeEvent::Notification {
-            notification_type,
-            notification_message,
-        } => {
-            if let Some(notification_type) = notification_type {
-                event.insert(
-                    "notification_type".to_string(),
-                    Value::from(notification_type.as_str()),
-                );
-            }
-            event.insert(
-                "notification_message".to_string(),
-                Value::from(notification_message.as_str()),
-            );
-        }
-        ClaudeEvent::Stop {
-            last_assistant_message,
-            agent_id,
-            agent_type,
-        } => {
-            event.insert(
-                "last_assistant_message".to_string(),
-                Value::from(last_assistant_message.as_str()),
-            );
-            if let Some(agent_id) = agent_id {
-                event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            }
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-        }
-        ClaudeEvent::StopFailure { error_type } => {
-            if let Some(error_type) = error_type {
-                event.insert("error_type".to_string(), Value::from(error_type.as_str()));
-            }
-        }
-        ClaudeEvent::SubagentStart {
-            agent_id,
-            agent_type,
-            agent_prompt,
-        } => {
-            event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-            event.insert(
-                "agent_prompt".to_string(),
-                Value::from(agent_prompt.as_str()),
-            );
-        }
-        ClaudeEvent::SubagentStop {
-            agent_id,
-            agent_type,
-            last_assistant_message,
-            stop_reason,
-        } => {
-            event.insert("agent_id".to_string(), Value::from(agent_id.as_str()));
-            if let Some(agent_type) = agent_type {
-                event.insert("agent_type".to_string(), Value::from(agent_type.as_str()));
-            }
-            event.insert(
-                "last_assistant_message".to_string(),
-                Value::from(last_assistant_message.as_str()),
-            );
-            if let Some(stop_reason) = stop_reason {
-                event.insert(
-                    "stop_reason".to_string(),
-                    Value::from(stop_reason.as_str()),
-                );
-            }
-        }
-        ClaudeEvent::SessionEnd { reason } => {
-            if let Some(reason) = reason {
-                event.insert("reason".to_string(), Value::from(reason.as_str()));
-            }
-        }
-    }
-
-    let mut record_map = Map::new();
-    record_map.insert(
-        "session_id".to_string(),
-        Value::from(record.session_id.as_str()),
-    );
-    record_map.insert("cwd".to_string(), Value::from(record.cwd.as_str()));
-    record_map.insert("event".to_string(), Value::Object(event));
-    record_map.insert("received_at".to_string(), Value::from(record.received_at.0));
-
-    let mut root = Map::new();
-    root.insert(
-        "protocol_version".to_string(),
-        Value::from(envelope.protocol_version),
-    );
-    root.insert("record".to_string(), Value::Object(record_map));
-    Value::Object(root)
-}
-
 /// Category-only drop log line (R14: rejected values never appear in logs).
 fn report_drop(reason: DropReason) {
     log_line(&format!(
@@ -1286,6 +1061,7 @@ pub mod test_log {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Map;
     use std::sync::Mutex;
 
     /// Serializes env-dependent tests; no other test in this binary touches
@@ -1403,7 +1179,10 @@ mod tests {
     #[test]
     fn user_prompt_submit_round_trips_prompt() {
         let record = accepted(parse_hook_input(
-            &payload("UserPromptSubmit", &[("prompt", Value::from("fix the bug"))]),
+            &payload(
+                "UserPromptSubmit",
+                &[("prompt", Value::from("fix the bug"))],
+            ),
             RECEIVED,
         ));
         assert_eq!(
@@ -1846,10 +1625,7 @@ mod tests {
                 &[
                     ("error_type", Value::from("timeout")),
                     ("error", Value::from("SENTINEL_ERROR")),
-                    (
-                        "last_assistant_message",
-                        Value::from("SENTINEL_ASSISTANT"),
-                    ),
+                    ("last_assistant_message", Value::from("SENTINEL_ASSISTANT")),
                 ],
             ),
             RECEIVED,
@@ -2378,6 +2154,26 @@ mod tests {
             .collect();
         keys.sort();
         assert_eq!(keys, ["cwd", "event", "received_at", "session_id"]);
+    }
+
+    #[test]
+    fn envelope_wire_bytes_use_the_declared_order_and_compact_shape() {
+        let record = ClaudeHookRecord {
+            session_id: "s".to_owned(),
+            cwd: "/w".to_owned(),
+            event: ClaudeEvent::PreToolUse {
+                tool_name: "Edit".to_owned(),
+                tool_use_id: "call-1".to_owned(),
+                tool_input: "{\"path\":\"a\"}".to_owned(),
+                agent_id: None,
+                agent_type: Some("general".to_owned()),
+            },
+            received_at: RECEIVED,
+        };
+        assert_eq!(
+            serialize_envelope(&record).unwrap(),
+            "{\"protocol_version\":1,\"record\":{\"session_id\":\"s\",\"cwd\":\"/w\",\"event\":{\"kind\":\"pre_tool_use\",\"tool_name\":\"Edit\",\"tool_use_id\":\"call-1\",\"tool_input\":\"{\\\"path\\\":\\\"a\\\"}\",\"agent_type\":\"general\"},\"received_at\":1700000000000}}\n"
+        );
     }
 
     #[test]
