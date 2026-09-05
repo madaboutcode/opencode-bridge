@@ -13,7 +13,8 @@ use opencode_client::{Message, SessionInfo};
 use crate::project_identity::ProjectIdentityCache;
 use crate::snapshot::{AttentionState, ProjectId, SessionId, SessionSnapshot, Timestamp};
 
-use super::question::looks_like_question;
+use crate::text::looks_like_question;
+
 use super::session_state::TrackedSession;
 use super::KIND;
 

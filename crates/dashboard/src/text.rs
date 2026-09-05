@@ -1,16 +1,11 @@
-//! The needs-you question-badge heuristic — `docs/specs/dashboard/visuals.md`
-//! R6.7, explicitly owned by the opencode adapter (`client.md` R1.3: "the
-//! needs-you/question-detection heuristic — opencode-specific guesswork
-//! with no real wire signal"). Confirmed by
-//! `docs/internal/opencode-sse-event-catalog-2026-09-01.md` §5: opencode
-//! has no permission-gate or ask-question protocol event, so this is a text
-//! heuristic over the final assistant message, checked once when a session
-//! transitions into needs-you.
-//!
-//! Per the delivery profile's deferral posture, this ships as a minimal
-//! rule; refinement (a longer/tuned phrase list) is explicitly deferred —
-//! false negatives (a real question not badged) are tolerable, the session
-//! still shows as plain needs-you.
+//! Shared, provider-agnostic text helpers. Nothing here knows any harness's
+//! tool-name vocabulary or wire shape. `collapse_newlines`/`basename` are
+//! neutral rendering mechanics reused by more than one adapter's action-line
+//! rendering; `looks_like_question` is the R6.7 needs-you question-badge
+//! heuristic (`docs/specs/dashboard/visuals.md`), consumed on the
+//! attention-state path (`opencode/reconcile.rs`), not a rendering path.
+
+use std::path::Path;
 
 const QUESTION_PHRASES: &[&str] = &[
     "which",
@@ -33,6 +28,17 @@ pub(crate) fn looks_like_question(text: &str) -> bool {
     }
     let lower = trimmed.to_lowercase();
     QUESTION_PHRASES.iter().any(|phrase| lower.contains(phrase))
+}
+
+pub(crate) fn collapse_newlines(text: &str) -> String {
+    text.lines().collect::<Vec<_>>().join(" · ")
+}
+
+pub(crate) fn basename(path: &str) -> &str {
+    Path::new(path)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or(path)
 }
 
 #[cfg(test)]

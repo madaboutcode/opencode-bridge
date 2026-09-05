@@ -6,7 +6,8 @@
 
 use serde_json::Value;
 use std::collections::HashMap;
-use std::path::Path;
+
+use crate::text::{basename, collapse_newlines};
 
 /// Per-session `call_id -> name` map (R6.4). `session.tool.input.started`
 /// is the only opencode event that carries a tool's name; `session.tool.
@@ -68,17 +69,6 @@ pub(crate) fn render_action_line(name: &str, input: &Value) -> String {
         }
         other => format!("running: {other}"),
     }
-}
-
-fn collapse_newlines(text: &str) -> String {
-    text.lines().collect::<Vec<_>>().join(" · ")
-}
-
-fn basename(path: &str) -> &str {
-    Path::new(path)
-        .file_name()
-        .and_then(|s| s.to_str())
-        .unwrap_or(path)
 }
 
 #[cfg(test)]

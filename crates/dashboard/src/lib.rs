@@ -23,6 +23,7 @@ pub mod opencode;
 pub mod project_identity;
 pub mod shell;
 pub mod snapshot;
+mod text;
 
 pub use adapter::{HarnessAdapter, SessionEvent};
 pub use claude::ClaudeAdapter;

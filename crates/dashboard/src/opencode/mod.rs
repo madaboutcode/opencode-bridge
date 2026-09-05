@@ -20,7 +20,6 @@
 //! — used by both the sweep and the SSE fast path.
 
 mod action_line;
-mod question;
 mod reconcile;
 mod session_state;
 
