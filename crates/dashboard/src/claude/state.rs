@@ -156,12 +156,14 @@ const RECENT_ACTIONS_CAP: usize = 5;
 struct ClaudeTrackedSession {
     project_id: ProjectId,
     created_at: Timestamp,
-    attention: AttentionState,
-    /// The sticky "current turn started at" basis a tool event reuses when
-    /// no fresher value exists (set by `UserPromptSubmit`/`SubagentStart`,
-    /// cleared by `Stop`). Distinct from `attention`'s own `Running`
-    /// payload, which is recomputed from this field on every tool event.
+    /// The current turn's start basis, reused by tool events when present.
     turn_started: Option<Timestamp>,
+    /// The latest needs-you transition and its question bit. Attention is
+    /// projected from this fact and `turn_started` at snapshot receipt time.
+    turn_ended: Option<(Timestamp, bool)>,
+    /// Receipt of the current Idle projection, retained across no-op and
+    /// preserved-projection paths.
+    idle_since: Option<Timestamp>,
     current_action: Option<String>,
     recent_actions: VecDeque<String>,
     last_user_prompt: Option<String>,
@@ -210,19 +212,20 @@ impl<R: DirResolver> ClaudeState<R> {
                         Some(SessionStartSource::Resume | SessionStartSource::Compact)
                     )
                 {
-                    tracked.attention = AttentionState::Idle {
-                        last_update: receipt,
-                    };
+                    tracked.turn_started = None;
+                    tracked.turn_ended = None;
+                    tracked.idle_since = Some(receipt);
+                    tracked.pending_tool_use_id = None;
                 }
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::UserPromptSubmit { prompt } => {
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
-                tracked.attention = AttentionState::Running {
-                    turn_started: receipt,
-                };
                 tracked.turn_started = Some(receipt);
+                tracked.turn_ended = None;
+                tracked.idle_since = None;
+                tracked.pending_tool_use_id = None;
                 tracked.last_user_prompt = Some(prompt.clone());
                 // A new turn's stale "previous answer" (finding 4, item 6)
                 // must not persist into whatever NeedsYou state this new
@@ -273,9 +276,8 @@ impl<R: DirResolver> ClaudeState<R> {
 
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
-                tracked.attention = AttentionState::Running {
-                    turn_started: tracked.turn_started.unwrap_or(receipt),
-                };
+                tracked.turn_ended = None;
+                tracked.idle_since = None;
                 // Only PreToolUse advances the ring/current-action pair, and
                 // only with the *previous* call's rendered line, never the
                 // bare tool name (finding 2, item 4): pushing the value this
@@ -287,7 +289,7 @@ impl<R: DirResolver> ClaudeState<R> {
                     push_recent_action(&mut tracked.recent_actions, previous);
                 }
                 tracked.current_action = Some(line);
-                snapshot_event(&target, tracked, receipt)
+                snapshot_event_with_fallback(&target, tracked, receipt, Some(receipt))
             }
             ClaudeEvent::PostToolUse { agent_id, .. }
             | ClaudeEvent::PostToolUseFailure { agent_id, .. } => {
@@ -305,12 +307,11 @@ impl<R: DirResolver> ClaudeState<R> {
 
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
-                tracked.attention = AttentionState::Running {
-                    turn_started: tracked.turn_started.unwrap_or(receipt),
-                };
+                tracked.turn_ended = None;
+                tracked.idle_since = None;
                 // Deliberately does not touch current_action/recent_actions
                 // (finding 2, item 4) — PreToolUse alone owns that pair.
-                snapshot_event(&target, tracked, receipt)
+                snapshot_event_with_fallback(&target, tracked, receipt, Some(receipt))
             }
             // NOTE: PermissionRequest/Elicitation have no agent_id field
             // today, so they always ensure/mutate top_id (never a subagent
@@ -328,10 +329,8 @@ impl<R: DirResolver> ClaudeState<R> {
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
                 tracked.pending_tool_use_id = Some(tool_use_id.clone());
-                tracked.attention = AttentionState::NeedsYou {
-                    question: true,
-                    turn_ended: receipt,
-                };
+                tracked.turn_ended = Some((receipt, true));
+                tracked.idle_since = None;
                 // Finding 4, item 7: the Question tile shows what is being
                 // asked for, reusing finding 2's own object extraction.
                 tracked.final_assistant_text =
@@ -360,10 +359,8 @@ impl<R: DirResolver> ClaudeState<R> {
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
                 tracked.pending_tool_use_id = Some(tool_use_id.clone());
-                tracked.attention = AttentionState::NeedsYou {
-                    question: true,
-                    turn_ended: receipt,
-                };
+                tracked.turn_ended = Some((receipt, true));
+                tracked.idle_since = None;
                 // Finding 4, item 8: already natural-language request text,
                 // no extraction needed.
                 tracked.final_assistant_text = Some(elicitation_request.clone());
@@ -388,17 +385,13 @@ impl<R: DirResolver> ClaudeState<R> {
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
                 match notification_type.as_deref() {
                     Some("idle_prompt") => {
-                        tracked.attention = AttentionState::NeedsYou {
-                            question: false,
-                            turn_ended: receipt,
-                        };
                         tracked.turn_started = None;
+                        tracked.turn_ended = Some((receipt, false));
+                        tracked.idle_since = None;
                     }
                     Some("permission_prompt") | Some("agent_needs_input") => {
-                        tracked.attention = AttentionState::NeedsYou {
-                            question: true,
-                            turn_ended: receipt,
-                        };
+                        tracked.turn_ended = Some((receipt, true));
+                        tracked.idle_since = None;
                     }
                     _ => {
                         // Any other value (None, or an unrecognized
@@ -421,26 +414,23 @@ impl<R: DirResolver> ClaudeState<R> {
                 // subagent Stop settles to Idle (superseded by its own
                 // SubagentStop shortly after), only the top-level case gets
                 // the question-glyph heuristic.
-                tracked.attention = match agent_id {
-                    Some(_) => AttentionState::Idle {
-                        last_update: receipt,
-                    },
-                    None => AttentionState::NeedsYou {
-                        question: looks_like_question(last_assistant_message),
-                        turn_ended: receipt,
-                    },
-                };
+                tracked.turn_ended = agent_id
+                    .is_none()
+                    .then(|| (receipt, looks_like_question(last_assistant_message)));
                 tracked.final_assistant_text = Some(last_assistant_message.clone());
                 tracked.turn_started = None;
+                tracked.idle_since = if agent_id.is_some() {
+                    Some(receipt)
+                } else {
+                    None
+                };
                 snapshot_event(&target, tracked, receipt)
             }
             ClaudeEvent::StopFailure { .. } => {
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
-                tracked.attention = AttentionState::NeedsYou {
-                    question: false,
-                    turn_ended: receipt,
-                };
+                tracked.turn_ended = Some((receipt, false));
+                tracked.idle_since = None;
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::SubagentStart {
@@ -451,10 +441,10 @@ impl<R: DirResolver> ClaudeState<R> {
                 let target = target_of(&top_id, Some(agent_id.as_str()));
                 self.ensure_tracked(&target, cwd, receipt, Some(top_id.clone()));
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
-                tracked.attention = AttentionState::Running {
-                    turn_started: receipt,
-                };
                 tracked.turn_started = Some(receipt);
+                tracked.turn_ended = None;
+                tracked.idle_since = None;
+                tracked.pending_tool_use_id = None;
                 tracked.last_user_prompt = Some(agent_prompt.clone());
                 snapshot_event(&target, tracked, receipt)
             }
@@ -487,7 +477,10 @@ impl<R: DirResolver> ClaudeState<R> {
         if self.sessions.contains_key(session_id) {
             return;
         }
-        let project_id = match parent_id.as_ref().and_then(|parent| self.sessions.get(parent)) {
+        let project_id = match parent_id
+            .as_ref()
+            .and_then(|parent| self.sessions.get(parent))
+        {
             Some(parent_tracked) => parent_tracked.project_id.clone(),
             None => resolve_project_id(&mut self.project_cache, session_id, cwd),
         };
@@ -496,10 +489,9 @@ impl<R: DirResolver> ClaudeState<R> {
             ClaudeTrackedSession {
                 project_id,
                 created_at: receipt,
-                attention: AttentionState::Idle {
-                    last_update: receipt,
-                },
                 turn_started: None,
+                turn_ended: None,
+                idle_since: Some(receipt),
                 current_action: None,
                 recent_actions: VecDeque::new(),
                 last_user_prompt: None,
@@ -513,8 +505,8 @@ impl<R: DirResolver> ClaudeState<R> {
 
 /// R14's generic exit-path rule: if `event` carries a `tool_use_id`
 /// (`ClaudeEvent::tool_use_id`) that matches `tracked`'s outstanding
-/// `pending_tool_use_id`, the pending state clears and attention returns to
-/// `Running` — *before* `event`'s own specific mapping runs, so the same
+/// `pending_tool_use_id`, the pending state and needs-you fact clear and the
+/// turn becomes Running — *before* `event`'s own specific mapping runs, so the same
 /// event can also carry its own effect (e.g. `PostToolUse` also sets
 /// `current_action`). Never assumes which specific event kind clears a given
 /// pending state: a mismatched or absent `tool_use_id` is a no-op here.
@@ -541,16 +533,27 @@ impl<R: DirResolver> ClaudeState<R> {
 /// permission is still genuinely pending, and that pending question's text
 /// must not be wiped by it (see `mismatched_tool_use_id_does_not_clear_the_
 /// pending_permission` in this module's tests).
-fn clear_pending_tool_use(tracked: &mut ClaudeTrackedSession, event: &ClaudeEvent, receipt: Timestamp) {
+fn clear_pending_tool_use(
+    tracked: &mut ClaudeTrackedSession,
+    event: &ClaudeEvent,
+    receipt: Timestamp,
+) {
     if let Some(tool_use_id) = event.tool_use_id() {
         if tracked.pending_tool_use_id.as_deref() == Some(tool_use_id) {
             tracked.pending_tool_use_id = None;
-            tracked.attention = AttentionState::Running {
-                turn_started: tracked.turn_started.unwrap_or(receipt),
-            };
+            start_running(tracked, receipt);
             tracked.final_assistant_text = None;
         }
     }
+}
+
+/// Establishes a Running transition without replacing an existing turn basis.
+fn start_running(tracked: &mut ClaudeTrackedSession, receipt: Timestamp) {
+    if tracked.turn_started.is_none() {
+        tracked.turn_started = Some(receipt);
+    }
+    tracked.turn_ended = None;
+    tracked.idle_since = None;
 }
 
 /// The subagent-or-top-level session id a tool/`Stop` event targets
@@ -612,11 +615,20 @@ fn snapshot_event(
     tracked: &ClaudeTrackedSession,
     last_updated: Timestamp,
 ) -> Vec<SessionEvent> {
+    snapshot_event_with_fallback(session_id, tracked, last_updated, None)
+}
+
+fn snapshot_event_with_fallback(
+    session_id: &SessionId,
+    tracked: &ClaudeTrackedSession,
+    last_updated: Timestamp,
+    running_fallback: Option<Timestamp>,
+) -> Vec<SessionEvent> {
     let snapshot = SessionSnapshot {
         session_id: session_id.clone(),
         project_id: tracked.project_id.clone(),
         parent_id: tracked.parent_id.clone(),
-        attention: tracked.attention,
+        attention: project_attention(tracked, last_updated, running_fallback),
         current_action: tracked.current_action.clone(),
         wire_title: None,
         final_assistant_text: tracked.final_assistant_text.clone(),
@@ -627,6 +639,25 @@ fn snapshot_event(
         last_updated,
     };
     vec![SessionEvent::Snapshot(Box::new(snapshot))]
+}
+
+fn project_attention(
+    tracked: &ClaudeTrackedSession,
+    receipt: Timestamp,
+    running_fallback: Option<Timestamp>,
+) -> AttentionState {
+    if let Some((turn_ended, question)) = tracked.turn_ended {
+        AttentionState::NeedsYou {
+            question,
+            turn_ended,
+        }
+    } else if let Some(turn_started) = tracked.turn_started.or(running_fallback) {
+        AttentionState::Running { turn_started }
+    } else {
+        AttentionState::Idle {
+            last_update: tracked.idle_since.unwrap_or(receipt),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -672,7 +703,12 @@ mod tests {
     const R3: u64 = 1_700_000_000_300;
     const R4: u64 = 1_700_000_000_400;
 
-    fn envelope(event: ClaudeEvent, session: &str, cwd: &str, received_at: u64) -> ClaudeIpcEnvelope {
+    fn envelope(
+        event: ClaudeEvent,
+        session: &str,
+        cwd: &str,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
         ClaudeIpcEnvelope {
             protocol_version: ENVELOPE_PROTOCOL_VERSION,
             record: ClaudeHookRecord {
@@ -685,9 +721,18 @@ mod tests {
     }
 
     fn start(session: &str, cwd: &str, received_at: u64) -> ClaudeIpcEnvelope {
+        start_from(session, cwd, Some(SessionStartSource::Startup), received_at)
+    }
+
+    fn start_from(
+        session: &str,
+        cwd: &str,
+        source: Option<SessionStartSource>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
         envelope(
             ClaudeEvent::SessionStart {
-                source: Some(SessionStartSource::Startup),
+                source,
                 model: None,
             },
             session,
@@ -753,7 +798,12 @@ mod tests {
         )
     }
 
-    fn stop(session: &str, cwd: &str, agent_id: Option<&str>, received_at: u64) -> ClaudeIpcEnvelope {
+    fn stop(
+        session: &str,
+        cwd: &str,
+        agent_id: Option<&str>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
         stop_with_message(session, cwd, "done", agent_id, received_at)
     }
 
@@ -858,6 +908,29 @@ mod tests {
                 tool_input: "{}".to_string(),
                 tool_response: "ok".to_string(),
                 agent_id: None,
+                agent_type: None,
+            },
+            session,
+            cwd,
+            received_at,
+        )
+    }
+
+    fn post_tool_failure(
+        session: &str,
+        cwd: &str,
+        tool_use_id: &str,
+        agent_id: Option<&str>,
+        received_at: u64,
+    ) -> ClaudeIpcEnvelope {
+        envelope(
+            ClaudeEvent::PostToolUseFailure {
+                tool_name: "Bash".to_string(),
+                tool_use_id: tool_use_id.to_string(),
+                tool_input: "{}".to_string(),
+                error: "failed".to_string(),
+                error_type: None,
+                agent_id: agent_id.map(str::to_string),
                 agent_type: None,
             },
             session,
@@ -1015,6 +1088,202 @@ mod tests {
     }
 
     #[test]
+    fn tracked_session_start_resets_idle_for_every_reset_source() {
+        for source in [
+            Some(SessionStartSource::Startup),
+            Some(SessionStartSource::Clear),
+            Some(SessionStartSource::Fork),
+            None,
+        ] {
+            let mut state = ClaudeState::new(IdentityResolver);
+            state.process(&start("sess-1", "/work/proj", R1));
+            state.process(&prompt("sess-1", "/work/proj", "go", R2));
+            let snapshot =
+                single_snapshot(state.process(&start_from("sess-1", "/work/proj", source, R3)));
+            assert_eq!(
+                snapshot.attention,
+                AttentionState::Idle {
+                    last_update: ts(R3)
+                },
+                "reset source {source:?} must enter a new Idle projection"
+            );
+        }
+    }
+
+    #[test]
+    fn tracked_resume_compact_and_noop_notifications_preserve_idle_since() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        let initial = single_snapshot(state.process(&start("sess-1", "/work/proj", R1)));
+        assert_eq!(
+            initial.attention,
+            AttentionState::Idle {
+                last_update: ts(R1)
+            }
+        );
+
+        for event in [
+            start_from("sess-1", "/work/proj", Some(SessionStartSource::Resume), R2),
+            start_from(
+                "sess-1",
+                "/work/proj",
+                Some(SessionStartSource::Compact),
+                R3,
+            ),
+            notification("sess-1", "/work/proj", R4),
+            permission_denied("sess-1", "/work/proj", "unmatched", R4 + 1),
+            elicitation_result("sess-1", "/work/proj", "unmatched", R4 + 2),
+        ] {
+            let snapshot = single_snapshot(state.process(&event));
+            assert_eq!(
+                snapshot.attention,
+                AttentionState::Idle {
+                    last_update: ts(R1)
+                },
+                "preserved Idle must retain its original receipt"
+            );
+        }
+    }
+
+    #[test]
+    fn unmatched_elicitation_result_preserves_needs_you() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&elicitation("sess-1", "/work/proj", "real", R1));
+        let snapshot = single_snapshot(state.process(&elicitation_result(
+            "sess-1",
+            "/work/proj",
+            "other",
+            R2,
+        )));
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::NeedsYou {
+                question: true,
+                turn_ended: ts(R1),
+            }
+        );
+    }
+
+    #[test]
+    fn post_tool_use_and_failure_clear_turn_ended_but_preserve_unrelated_pending_id() {
+        for failure in [false, true] {
+            let mut state = ClaudeState::new(IdentityResolver);
+            state.process(&prompt("sess-1", "/work/proj", "go", R1));
+            state.process(&permission_request("sess-1", "/work/proj", "real", R2));
+            let event = if failure {
+                post_tool_failure("sess-1", "/work/proj", "other", None, R3)
+            } else {
+                post_tool("sess-1", "/work/proj", "Bash", "other", R3)
+            };
+            let snapshot = single_snapshot(state.process(&event));
+            assert_eq!(
+                snapshot.attention,
+                AttentionState::Running {
+                    turn_started: ts(R1)
+                },
+                "unmatched post-tool event must perform its own Running transition"
+            );
+            assert_eq!(
+                state
+                    .sessions
+                    .get(&SessionId::new(KIND, "sess-1"))
+                    .and_then(|tracked| tracked.pending_tool_use_id.as_deref()),
+                Some("real"),
+                "unmatched post-tool event must retain the unrelated pending id"
+            );
+            let waiting = single_snapshot(state.process(&notification("sess-1", "/work/proj", R4)));
+            assert_eq!(
+                waiting.attention,
+                AttentionState::Running {
+                    turn_started: ts(R1)
+                },
+                "pending correlation must not manufacture NeedsYou"
+            );
+        }
+    }
+
+    #[test]
+    fn post_tool_failure_without_pending_id_uses_receipt_fallback_without_inventing_pending_state()
+    {
+        let mut state = ClaudeState::new(IdentityResolver);
+        let snapshot = single_snapshot(state.process(&post_tool_failure(
+            "sess-1",
+            "/work/proj",
+            "call-1",
+            None,
+            R2,
+        )));
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::Running {
+                turn_started: ts(R2)
+            }
+        );
+        assert_eq!(
+            state
+                .sessions
+                .get(&SessionId::new(KIND, "sess-1"))
+                .and_then(|tracked| tracked.pending_tool_use_id.as_deref()),
+            None,
+            "a post-tool failure without pending state must not invent one"
+        );
+    }
+
+    #[test]
+    fn post_tool_failure_matching_pending_id_uses_retained_start_and_clears_pending() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&prompt("sess-1", "/work/proj", "go", R1));
+        state.process(&permission_request("sess-1", "/work/proj", "real", R2));
+        let snapshot = single_snapshot(state.process(&post_tool_failure(
+            "sess-1",
+            "/work/proj",
+            "real",
+            None,
+            R3,
+        )));
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::Running {
+                turn_started: ts(R1)
+            }
+        );
+    }
+
+    #[test]
+    fn unrelated_subagent_post_tool_events_do_not_clear_top_level_pending() {
+        for failure in [false, true] {
+            let mut state = ClaudeState::new(IdentityResolver);
+            state.process(&prompt("top", "/work/proj", "go", R1));
+            state.process(&subagent_start("top", "/work/proj", "agent-1", R1));
+            state.process(&permission_request("top", "/work/proj", "real", R2));
+            let event = if failure {
+                post_tool_failure("top", "/work/proj", "other", Some("agent-1"), R3)
+            } else {
+                let mut event = post_tool("top", "/work/proj", "Bash", "other", R3);
+                if let ClaudeEvent::PostToolUse { agent_id, .. } = &mut event.record.event {
+                    *agent_id = Some("agent-1".to_string());
+                }
+                event
+            };
+            let subagent = single_snapshot(state.process(&event));
+            assert_eq!(
+                subagent.attention,
+                AttentionState::Running {
+                    turn_started: ts(R1)
+                }
+            );
+            let top = single_snapshot(state.process(&notification("top", "/work/proj", R4)));
+            assert_eq!(
+                top.attention,
+                AttentionState::NeedsYou {
+                    question: true,
+                    turn_ended: ts(R2),
+                },
+                "unrelated subagent tool must not clear top-level pending state"
+            );
+        }
+    }
+
+    #[test]
     fn stop_failure_as_first_event_admits_with_its_receipt_time() {
         let mut state = ClaudeState::new(IdentityResolver);
         let snapshot = single_snapshot(state.process(&stop_failure("sess-1", "/work/proj", R2)));
@@ -1041,14 +1310,20 @@ mod tests {
         assert!(matches!(events.as_slice(), [SessionEvent::Gone(id)] if id.native_id == "sess-1"));
 
         let fresh = single_snapshot(state.process(&start("sess-1", "/work/proj", R3)));
-        assert_eq!(fresh.created_at, ts(R3), "re-admitted session restarts its clock");
+        assert_eq!(
+            fresh.created_at,
+            ts(R3),
+            "re-admitted session restarts its clock"
+        );
     }
 
     #[test]
     fn session_end_for_a_never_seen_native_id_still_emits_gone() {
         let mut state = ClaudeState::new(IdentityResolver);
         let events = state.process(&end("never-seen", "/work/x", R3));
-        assert!(matches!(events.as_slice(), [SessionEvent::Gone(id)] if id.native_id == "never-seen"));
+        assert!(
+            matches!(events.as_slice(), [SessionEvent::Gone(id)] if id.native_id == "never-seen")
+        );
     }
 
     // --- Activity mapping ---
@@ -1057,12 +1332,8 @@ mod tests {
     fn user_prompt_submit_starts_a_turn_and_records_the_prompt() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&start("sess-1", "/work/proj", R1));
-        let snapshot = single_snapshot(state.process(&prompt(
-            "sess-1",
-            "/work/proj",
-            "fix the bug",
-            R2,
-        )));
+        let snapshot =
+            single_snapshot(state.process(&prompt("sess-1", "/work/proj", "fix the bug", R2)));
         assert_eq!(
             snapshot.attention,
             AttentionState::Running {
@@ -1176,13 +1447,8 @@ mod tests {
     #[test]
     fn tool_event_without_a_prior_turn_falls_back_to_its_own_receipt() {
         let mut state = ClaudeState::new(IdentityResolver);
-        let snapshot = single_snapshot(state.process(&pre_tool(
-            "sess-1",
-            "/work/proj",
-            "Edit",
-            None,
-            R1,
-        )));
+        let snapshot =
+            single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Edit", None, R1)));
         assert_eq!(
             snapshot.attention,
             AttentionState::Running {
@@ -1245,6 +1511,70 @@ mod tests {
             AttentionState::NeedsYou {
                 question: true,
                 turn_ended: ts(R2)
+            }
+        );
+    }
+
+    #[test]
+    fn first_permission_request_then_matching_denial_starts_running_at_clear_receipt() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&permission_request("sess-1", "/work/proj", "call-perm", R1));
+
+        let snapshot = single_snapshot(state.process(&permission_denied(
+            "sess-1",
+            "/work/proj",
+            "call-perm",
+            R2,
+        )));
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::Running {
+                turn_started: ts(R2)
+            }
+        );
+    }
+
+    #[test]
+    fn first_elicitation_then_matching_result_starts_running_at_clear_receipt() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        state.process(&elicitation("sess-1", "/work/proj", "call-elicit", R1));
+
+        let snapshot = single_snapshot(state.process(&elicitation_result(
+            "sess-1",
+            "/work/proj",
+            "call-elicit",
+            R2,
+        )));
+        assert_eq!(
+            snapshot.attention,
+            AttentionState::Running {
+                turn_started: ts(R2)
+            }
+        );
+    }
+
+    #[test]
+    fn tool_receipt_fallback_is_not_retained_as_a_turn_basis() {
+        let mut state = ClaudeState::new(IdentityResolver);
+        let running = single_snapshot(state.process(&post_tool(
+            "sess-1",
+            "/work/proj",
+            "Bash",
+            "call-1",
+            R1,
+        )));
+        assert_eq!(
+            running.attention,
+            AttentionState::Running {
+                turn_started: ts(R1)
+            }
+        );
+
+        let idle = single_snapshot(state.process(&notification("sess-1", "/work/proj", R2)));
+        assert_eq!(
+            idle.attention,
+            AttentionState::Idle {
+                last_update: ts(R2)
             }
         );
     }
@@ -1318,12 +1648,8 @@ mod tests {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("top", "/work/proj", "go", R1));
         state.process(&subagent_start("top", "/work/proj", "agent-1", R1));
-        let waiting = single_snapshot(state.process(&permission_request(
-            "top",
-            "/work/proj",
-            "call-1",
-            R2,
-        )));
+        let waiting =
+            single_snapshot(state.process(&permission_request("top", "/work/proj", "call-1", R2)));
         assert_eq!(
             waiting.attention,
             AttentionState::NeedsYou {
@@ -1395,12 +1721,7 @@ mod tests {
         // event kind's own attention mapping.
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        state.process(&permission_request(
-            "sess-1",
-            "/work/proj",
-            "call-real",
-            R2,
-        ));
+        state.process(&permission_request("sess-1", "/work/proj", "call-real", R2));
 
         let still_waiting = single_snapshot(state.process(&permission_denied(
             "sess-1",
@@ -1436,12 +1757,8 @@ mod tests {
     fn elicitation_then_elicitation_result_clears_to_running() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        let waiting = single_snapshot(state.process(&elicitation(
-            "sess-1",
-            "/work/proj",
-            "call-elicit",
-            R2,
-        )));
+        let waiting =
+            single_snapshot(state.process(&elicitation("sess-1", "/work/proj", "call-elicit", R2)));
         assert_eq!(
             waiting.attention,
             AttentionState::NeedsYou {
@@ -1484,12 +1801,8 @@ mod tests {
             Some("Which file would you like me to delete?")
         );
 
-        let next_turn = single_snapshot(state.process(&prompt(
-            "sess-1",
-            "/work/proj",
-            "delete a.txt",
-            R3,
-        )));
+        let next_turn =
+            single_snapshot(state.process(&prompt("sess-1", "/work/proj", "delete a.txt", R3)));
         assert_eq!(
             next_turn.final_assistant_text, None,
             "the previous turn's answer must not survive into the new turn"
@@ -1520,13 +1833,12 @@ mod tests {
         // Item 10(c): already natural-language text, no extraction.
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        let waiting = single_snapshot(state.process(&elicitation(
-            "sess-1",
-            "/work/proj",
-            "call-elicit",
-            R2,
-        )));
-        assert_eq!(waiting.final_assistant_text.as_deref(), Some("confirm deletion?"));
+        let waiting =
+            single_snapshot(state.process(&elicitation("sess-1", "/work/proj", "call-elicit", R2)));
+        assert_eq!(
+            waiting.final_assistant_text.as_deref(),
+            Some("confirm deletion?")
+        );
     }
 
     #[test]
@@ -1601,13 +1913,8 @@ mod tests {
     fn notification_only_refreshes_last_updated() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        let before = single_snapshot(state.process(&pre_tool(
-            "sess-1",
-            "/work/proj",
-            "Edit",
-            None,
-            R2,
-        )));
+        let before =
+            single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Edit", None, R2)));
         let after = single_snapshot(state.process(&notification("sess-1", "/work/proj", R3)));
         assert_eq!(after.attention, before.attention, "attention is untouched");
         assert_eq!(after.current_action, before.current_action);
@@ -1639,13 +1946,8 @@ mod tests {
         // turn_started was cleared: a later tool event (no new
         // UserPromptSubmit) falls back to its own receipt, exactly like
         // Stop's own bookkeeping.
-        let resumed = single_snapshot(state.process(&pre_tool(
-            "sess-1",
-            "/work/proj",
-            "Bash",
-            None,
-            R4,
-        )));
+        let resumed =
+            single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Bash", None, R4)));
         assert_eq!(
             resumed.attention,
             AttentionState::Running {
@@ -1682,13 +1984,8 @@ mod tests {
             // still be running with a subprocess waiting on the user. A
             // later tool event reuses the original turn start (R1), not
             // its own receipt.
-            let resumed = single_snapshot(state.process(&pre_tool(
-                "sess-1",
-                "/work/proj",
-                "Bash",
-                None,
-                R4,
-            )));
+            let resumed =
+                single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Bash", None, R4)));
             assert_eq!(
                 resumed.attention,
                 AttentionState::Running {
@@ -1703,13 +2000,8 @@ mod tests {
     fn notification_unrecognized_type_leaves_attention_unchanged() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&prompt("sess-1", "/work/proj", "go", R1));
-        let before = single_snapshot(state.process(&pre_tool(
-            "sess-1",
-            "/work/proj",
-            "Edit",
-            None,
-            R2,
-        )));
+        let before =
+            single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Edit", None, R2)));
 
         let after = single_snapshot(state.process(&notification_typed(
             "sess-1",
@@ -1741,13 +2033,8 @@ mod tests {
 
         // turn_started was cleared: a later tool event (defensive, no new
         // UserPromptSubmit) falls back to its own receipt again.
-        let resumed = single_snapshot(state.process(&pre_tool(
-            "sess-1",
-            "/work/proj",
-            "Bash",
-            None,
-            R4,
-        )));
+        let resumed =
+            single_snapshot(state.process(&pre_tool("sess-1", "/work/proj", "Bash", None, R4)));
         assert_eq!(
             resumed.attention,
             AttentionState::Running {
@@ -1785,12 +2072,8 @@ mod tests {
     fn subagent_start_creates_a_distinct_child_session() {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&start("top", "/work/proj", R1));
-        let snapshot = single_snapshot(state.process(&subagent_start(
-            "top",
-            "/work/proj",
-            "agent-1",
-            R2,
-        )));
+        let snapshot =
+            single_snapshot(state.process(&subagent_start("top", "/work/proj", "agent-1", R2)));
 
         assert_eq!(snapshot.session_id.harness, KIND);
         assert_eq!(snapshot.session_id.native_id, "top:agent-1");
@@ -1901,12 +2184,8 @@ mod tests {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&start("top", "/work/proj", R1));
         state.process(&subagent_start("top", "/work/proj", "agent-1", R2));
-        let snapshot = single_snapshot(state.process(&stop(
-            "top",
-            "/work/proj",
-            Some("agent-1"),
-            R3,
-        )));
+        let snapshot =
+            single_snapshot(state.process(&stop("top", "/work/proj", Some("agent-1"), R3)));
         assert_eq!(snapshot.session_id.native_id, "top:agent-1");
         assert_eq!(
             snapshot.attention,
@@ -1949,12 +2228,8 @@ mod tests {
         let mut state = ClaudeState::new(IdentityResolver);
         state.process(&start("top", "/work/proj", R1));
         state.process(&subagent_start("top", "/work/proj", "agent-1", R2));
-        let second = single_snapshot(state.process(&subagent_start(
-            "top",
-            "/work/proj",
-            "agent-1",
-            R3,
-        )));
+        let second =
+            single_snapshot(state.process(&subagent_start("top", "/work/proj", "agent-1", R3)));
         assert_eq!(second.created_at, ts(R2));
         assert_eq!(second.last_updated, ts(R3));
     }

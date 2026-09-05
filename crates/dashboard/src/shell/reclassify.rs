@@ -1,7 +1,7 @@
 //! R3/R3.1's active-window reclassification (`docs/specs/dashboard/
 //! overview.md` R3) — deliberately *not* T09's job. `snapshot.rs`'s own doc
-//! comment on `AttentionState::Idle` says so directly: the opencode adapter
-//! only ever constructs `Running`/`NeedsYou`, because the active-window `W`
+//! comment on `AttentionState::Idle` says so directly: adapters may construct
+//! `Idle` (Claude does so when it has no turn facts), while the active-window `W`
 //! is a core/T12-owned, keyboard-adjustable setting the adapter has no
 //! visibility into. This module is that core-side computation: it turns a
 //! stale `Running`/`NeedsYou` session into `Idle`, based on

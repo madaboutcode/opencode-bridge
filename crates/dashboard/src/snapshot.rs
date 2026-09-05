@@ -107,18 +107,17 @@ impl ProjectId {
 /// timestamp (not a rendered "Nm ago" string) is what lets a redraw compute
 /// fresh elapsed time every frame without the adapter re-emitting anything.
 ///
-/// The opencode adapter (this task) only ever constructs `Running` and
-/// `NeedsYou` — see `opencode/reconcile.rs`'s `is_running`. `Idle` exists in
+/// Adapters may construct `Running`, `NeedsYou`, or `Idle`; for example the
+/// Claude adapter projects `Idle` when it has no turn facts. `Idle` exists in
 /// this shared type because `overview.md` R3's active-window filter is a
 /// *display* reclassification of a long-quiet `NeedsYou` session, computed
 /// by the core/T12 from the snapshot's dedicated `last_updated` field (see
 /// `SessionSnapshot` below) — not something the adapter can compute itself,
 /// since the window `W` is a core-owned, keyboard-adjustable setting
-/// (`interactions.md` R8) the adapter has no visibility into. Flagging this
-/// as an explicit design call: T09's contract lists `Idle` as part of this
-/// enum's shape, but also states T12 owns the active/idle window
-/// computation from `last_updated` — the two are consistent only if `Idle`
-/// is something downstream constructs, not something this adapter emits.
+/// (`interactions.md` R8) the adapter has no visibility into. Claude may also
+/// construct `Idle` directly when its authoritative turn facts contain no
+/// active or needs-you transition; this does not change the shared enum or
+/// the core's active-window reclassification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AttentionState {
     Running {
