@@ -3,8 +3,8 @@
 Goal: implement fable 5.1 review findings 1/2/4/5 + 4 structural smells
 against `crates/dashboard/src/claude/` (finding 3 excluded).
 Current milestone: M2 — structural rewrites (signed off).
-Git: branch `claude-dashboard-fable-fixes`, last milestone committed: M1
-(`b1ea617`).
+Git: branch `claude-dashboard-fable-fixes`, M1 committed at `b1ea617`; M2
+signed off in `2325f3a`.
 Active agents: none; advisor sign-off recorded in `gates/M2-review.md`.
 Open escalations: none; M2 execution topology and T04 fallback escalation
 resolved (`gates/M2-escalation.md`, `gates/M2-integration-escalation.md`).
@@ -51,19 +51,12 @@ Advisor is flagging: if T03 surfaces a fourth *independent* spec conflict
 client.md R1.3), that's the signal the spec set itself needs a pass — don't
 patch it as a one-off, raise it with advisor first.
 
-After all 4 M1 tasks gate: assemble a milestone write-up per conductor's
-Milestone stage (branch name + each task's commit hash) and bring it to
-`advisor` (Opus, persistent, still reachable by name) for M1 sign-off. Then
-return to Decomposition for M2 (turn-state derivation removing the
-attention/turn_started/pending_tool_use_id triplication; serde-derived wire
-schema). Must explicitly ask the user the M2 reviewer-strength question
-(coder vs Opus) rather than defaulting silently — advisor flagged this.
-M2 very likely needs `writing-specs` since it changes wire encoding (unlike
-M1, where claude.md's Scope excluded this). After M1+M2: resume the live
-end-to-end hook-registration proof, out of scope for this run, using ONLY
-isolated test configs (`claude --settings <scratch-path>`) — never touch
-real `.claude/settings.json`, per the user's explicit standing instruction.
+Historical M1 sign-off and M2 decomposition are recorded above. M2 is now
+signed off after the task and fan-in reviews. The next separately scoped phase
+is live end-to-end hook-registration proof, using ONLY isolated test configs
+(`claude --settings <scratch-path>`) — never touch real `.claude/settings.json`,
+per the user's explicit standing instruction.
 
 Full run record: `tasks/2026-09-05-claude-dashboard-fable-fixes/` (PLAN.md,
 delivery-profile.md, advisor-brief.md, decisions.md, deferred.md,
-contracts/T00-T03, gates/T00-T02 reports).
+contracts/T00-T05, gates/T00-T05 and M2 reports).
