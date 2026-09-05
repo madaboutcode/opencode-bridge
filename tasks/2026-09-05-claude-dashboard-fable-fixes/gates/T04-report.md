@@ -70,3 +70,30 @@ the conditional review. No production logic changed in pass 3.
 - `git diff --check`: clean
 
 **Conformance:** yes. T04 is ready to commit.
+
+## Fan-In Follow-Up
+
+The first M2 fan-in review found that an event-local tool receipt fallback was
+lost across tracked `Resume`/`Compact`, causing a first-tool Running snapshot
+to become Idle. The advisor rejected both an extra fallback fact and weakening
+M1 preservation, and chose retaining the receipt in the existing
+`turn_started` fact. T04 contract version 4 / Review Frame v3 records that
+amendment.
+
+Pass 4 retained the receipt for `PreToolUse`, `PostToolUse`, and
+`PostToolUseFailure`, replaced the contradictory non-retention test, and added
+Resume/Compact preservation coverage.
+
+**Follow-up independent reviewer:** fresh `luna-high` — PASS, no findings.
+
+**Verification:**
+
+- focused state tests: 49 passed
+- focused adapter tests: 3 passed
+- `cargo test -p dashboard`: 376 passed
+- `cargo clippy -p dashboard --all-targets`: clean
+- `cargo fmt --all -- --check`: passed
+- `git diff --check`: passed
+
+**Conformance:** yes. T04 follow-up is ready to commit; M2 fan-in must be
+rerun before milestone sign-off.

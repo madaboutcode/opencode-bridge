@@ -276,8 +276,7 @@ impl<R: DirResolver> ClaudeState<R> {
 
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
-                tracked.turn_ended = None;
-                tracked.idle_since = None;
+                start_running(tracked, receipt);
                 // Only PreToolUse advances the ring/current-action pair, and
                 // only with the *previous* call's rendered line, never the
                 // bare tool name (finding 2, item 4): pushing the value this
@@ -289,7 +288,7 @@ impl<R: DirResolver> ClaudeState<R> {
                     push_recent_action(&mut tracked.recent_actions, previous);
                 }
                 tracked.current_action = Some(line);
-                snapshot_event_with_fallback(&target, tracked, receipt, Some(receipt))
+                snapshot_event(&target, tracked, receipt)
             }
             ClaudeEvent::PostToolUse { agent_id, .. }
             | ClaudeEvent::PostToolUseFailure { agent_id, .. } => {
@@ -307,11 +306,10 @@ impl<R: DirResolver> ClaudeState<R> {
 
                 let tracked = self.sessions.get_mut(&target).expect("just ensured");
                 clear_pending_tool_use(tracked, &envelope.record.event, receipt);
-                tracked.turn_ended = None;
-                tracked.idle_since = None;
+                start_running(tracked, receipt);
                 // Deliberately does not touch current_action/recent_actions
                 // (finding 2, item 4) — PreToolUse alone owns that pair.
-                snapshot_event_with_fallback(&target, tracked, receipt, Some(receipt))
+                snapshot_event(&target, tracked, receipt)
             }
             // NOTE: PermissionRequest/Elicitation have no agent_id field
             // today, so they always ensure/mutate top_id (never a subagent
@@ -615,20 +613,11 @@ fn snapshot_event(
     tracked: &ClaudeTrackedSession,
     last_updated: Timestamp,
 ) -> Vec<SessionEvent> {
-    snapshot_event_with_fallback(session_id, tracked, last_updated, None)
-}
-
-fn snapshot_event_with_fallback(
-    session_id: &SessionId,
-    tracked: &ClaudeTrackedSession,
-    last_updated: Timestamp,
-    running_fallback: Option<Timestamp>,
-) -> Vec<SessionEvent> {
     let snapshot = SessionSnapshot {
         session_id: session_id.clone(),
         project_id: tracked.project_id.clone(),
         parent_id: tracked.parent_id.clone(),
-        attention: project_attention(tracked, last_updated, running_fallback),
+        attention: project_attention(tracked, last_updated),
         current_action: tracked.current_action.clone(),
         wire_title: None,
         final_assistant_text: tracked.final_assistant_text.clone(),
@@ -641,17 +630,13 @@ fn snapshot_event_with_fallback(
     vec![SessionEvent::Snapshot(Box::new(snapshot))]
 }
 
-fn project_attention(
-    tracked: &ClaudeTrackedSession,
-    receipt: Timestamp,
-    running_fallback: Option<Timestamp>,
-) -> AttentionState {
+fn project_attention(tracked: &ClaudeTrackedSession, receipt: Timestamp) -> AttentionState {
     if let Some((turn_ended, question)) = tracked.turn_ended {
         AttentionState::NeedsYou {
             question,
             turn_ended,
         }
-    } else if let Some(turn_started) = tracked.turn_started.or(running_fallback) {
+    } else if let Some(turn_started) = tracked.turn_started {
         AttentionState::Running { turn_started }
     } else {
         AttentionState::Idle {
@@ -1554,29 +1539,57 @@ mod tests {
     }
 
     #[test]
-    fn tool_receipt_fallback_is_not_retained_as_a_turn_basis() {
-        let mut state = ClaudeState::new(IdentityResolver);
-        let running = single_snapshot(state.process(&post_tool(
-            "sess-1",
-            "/work/proj",
-            "Bash",
-            "call-1",
-            R1,
-        )));
-        assert_eq!(
-            running.attention,
-            AttentionState::Running {
-                turn_started: ts(R1)
-            }
-        );
+    fn first_tool_event_retains_receipt_across_resume_and_compact() {
+        for kind in ["pre", "post", "failure"] {
+            let mut state = ClaudeState::new(IdentityResolver);
+            let running = match kind {
+                "pre" => single_snapshot(state.process(&pre_tool(
+                    "sess-1",
+                    "/work/proj",
+                    "Edit",
+                    None,
+                    R1,
+                ))),
+                "post" => single_snapshot(state.process(&post_tool(
+                    "sess-1",
+                    "/work/proj",
+                    "Bash",
+                    "call-1",
+                    R1,
+                ))),
+                "failure" => single_snapshot(state.process(&post_tool_failure(
+                    "sess-1",
+                    "/work/proj",
+                    "call-1",
+                    None,
+                    R1,
+                ))),
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                running.attention,
+                AttentionState::Running {
+                    turn_started: ts(R1)
+                },
+                "{kind} must retain its receipt as the turn basis"
+            );
 
-        let idle = single_snapshot(state.process(&notification("sess-1", "/work/proj", R2)));
-        assert_eq!(
-            idle.attention,
-            AttentionState::Idle {
-                last_update: ts(R2)
+            for source in [SessionStartSource::Resume, SessionStartSource::Compact] {
+                let snapshot = single_snapshot(state.process(&start_from(
+                    "sess-1",
+                    "/work/proj",
+                    Some(source),
+                    R2,
+                )));
+                assert_eq!(
+                    snapshot.attention,
+                    AttentionState::Running {
+                        turn_started: ts(R1)
+                    },
+                    "{kind} basis must survive {source:?}"
+                );
             }
-        );
+        }
     }
 
     // --- R14 (advisor review round 2): generic tool_use_id exit-path ---
