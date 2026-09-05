@@ -81,3 +81,62 @@ existing to test).
 them, so a regression doesn't require running OpenCode's tests to catch.
 
 **Source** — T00 reviewer, pass 1 (2026-09-05).
+
+## `snapshot.rs` adapter-ownership comment is stale
+
+**Scenario** — M1's fresh-eyes review found that the provider-neutral
+`snapshot.rs` comment says OpenCode is the only adapter constructing `Idle`,
+while Claude now constructs that state as part of its event mapping.
+
+**Consequence** — The comment can mislead a future state-model change, but it
+does not alter runtime behavior or the M1 release bar.
+
+**Deferral assumption** — This is source documentation only and the comment
+is outside the M1 task ownership boundaries. No consumer-facing contract is
+wrong after the R13 correction.
+
+**Promotion trigger** — Update the comment during the next snapshot/state
+model documentation change, especially the M2 turn-state derivation work.
+
+**Source** — M1 fresh-eyes milestone review and advisor adjudication
+(2026-09-05).
+
+## Broader legacy spec-rubric cleanup remains
+
+**Scenario** — The independent R13 validation found pre-existing structural
+spec issues beyond this run's targeted corrections, including technology-level
+wording in older requirements, missing explicit section headings, and several
+non-concrete scenarios across the 428-line Claude spec tree.
+
+**Consequence** — The specs are less suitable as technology-independent
+rebuild instructions than the strict generic rubric prefers, but the targeted
+M1 Claude event and adapter contracts are now consistent and testable.
+
+**Deferral assumption** — These issues predate the Fable fixes and correcting
+them would be a broad rewrite of the spec tree, not a release-critical change
+to the supported dashboard workflows. No M1 behavior depends on that rewrite.
+
+**Promotion trigger** — Schedule a dedicated documentation reconciliation pass
+with its own scope, review, and spec-delta rather than expanding this run's
+milestone artifact.
+
+**Source** — independent writing-specs validation (2026-09-05); disposition
+confirmed by advisor.
+
+## Claude module comment says "the two sub-types"
+
+**Scenario** — The M1 fresh-eyes review found that the Claude state module's
+comment says "the two sub-types" while naming three Notification subtypes:
+`idle_prompt`, `permission_prompt`, and `agent_needs_input`.
+
+**Consequence** — The comment is imprecise and can distract a future reader,
+but the executable mappings and regression tests explicitly cover all three.
+
+**Deferral assumption** — This is documentation-only, non-blocking, and the
+M1 milestone is already behaviorally and contractually correct.
+
+**Promotion trigger** — Correct the wording when the state-model documentation
+is next touched, especially during M2 turn-state derivation.
+
+**Source** — M1 fresh-eyes re-review and advisor milestone sign-off
+(2026-09-05).

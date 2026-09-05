@@ -165,3 +165,76 @@ already implemented by T02's items 6-9).
 **Reversal** — none anticipated; would need revisiting only if a future
 path sets `final_assistant_text` for a reason not covered by "turn ended
 with a question" or "permission/elicitation pending."
+
+## 2026-09-05 — M1 milestone: correct T01's Claude-spec boundary
+
+**Considered** — whether the M1 fresh-eyes finding that R13 contradicted
+T01's Notification mapping was a code defect, a new task, or a documentation
+boundary problem. T01 explicitly excluded `docs/specs/dashboard/claude.md`,
+while the approved delivery profile requires changed attention mapping to be
+documented.
+
+**Chosen** — classify this as a decomposition flaw and correct only R13's
+Notification paragraph as an M1 milestone artifact. It now states that
+`idle_prompt` maps to `NeedsYou` without the question flag,
+`permission_prompt` and `agent_needs_input` map to `NeedsYou` with the
+question flag, and absent or unrecognized subtypes leave attention unchanged.
+No implementation task is recut.
+
+**Why** — the implementation was coherent and the defect was solely that the
+source of truth still described the old behavior. A bounded spec correction is
+smaller and safer than reopening a passed task for a documentation-only hunk.
+
+**Limitations** — this records the milestone correction; future tasks that
+change attention mapping must include the affected Claude spec in their owns
+list rather than excluding it by default.
+
+**Reversal** — if the adapter mapping changes again, update R13 and its
+co-located scenario in the same change before treating the behavior as gated.
+
+## 2026-09-05 — M1 milestone: reconcile the Claude adapter cross-reference
+
+**Considered** — whether the stale Claude adapter description in
+`docs/specs/dashboard/client.md` could remain as historical context because it
+predated M1, or whether it contradicted the canonical `claude.md` R13-R15
+contract and current implementation strongly enough to block sign-off.
+
+**Chosen** — correct the bounded adapter-description block as an M1
+documentation artifact. It now references all fifteen R13 events and the
+bounded R14-R15 content contract, states that fields are event-dependent, and
+retains the SessionEnd tombstone behavior. No implementation task is recut.
+
+**Why** — `client.md` is part of the project source of truth, and its old
+three-event/empty-content claims directly told implementers the opposite of
+the current behavior. The correction removes duplication instead of creating
+another event matrix.
+
+**Limitations** — broad pre-existing spec-style issues found by the validator
+are not part of this correction; they are recorded as a later documentation
+reconciliation item in `deferred.md`.
+
+**Reversal** — if the Claude event matrix or bounded-field policy changes,
+update `claude.md` first and revisit this cross-reference in the same change.
+
+## 2026-09-05 — M1 milestone sign-off
+
+**Considered** — whether the four gated M1 tasks, the two corrected
+cross-file spec artifacts, and the recorded deferrals satisfy the approved
+delivery profile after fresh-eyes integration review.
+
+**Chosen** — advisor signed off M1 as **FIT PASS**. Retain the documented
+deferrals and proceed to M2 decomposition for turn-state derivation and the
+serde-derived wire schema. The module-comment mismatch saying "the two
+sub-types" while naming three Notification subtypes is deferred as a
+documentation-only correction.
+
+**Why** — all supported M1 workflows have task-level regression coverage,
+the integration seams fit, the documented-truth blockers are corrected, and
+the remaining concerns are bounded with explicit promotion triggers.
+
+**Limitations** — live end-to-end hook proof and broad hardening/spec cleanup
+remain outside M1; M2 must preserve the accepted M1 behavior before changing
+the underlying representation.
+
+**Reversal** — if a retained deferral's assumption fails during M2 or live
+proof, promote it to a scoped task and reopen the affected milestone decision.

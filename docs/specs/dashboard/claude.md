@@ -114,9 +114,12 @@ R17).
   include attention-worthy states (`agent_needs_input`, `permission_prompt`,
   `idle_prompt`) even though its own sub-type set overlaps the dedicated
   permission/elicitation events above — R14 admits the label for that
-  reason, while the state mapping conservatively does not force an
-  attention change on every sub-type yet (that mapping decision belongs to
-  the adapter, out of this file's scope; see Scope above). Every other
+  reason. The adapter maps `idle_prompt` to a needs-you state without the
+  question flag, and maps `permission_prompt` and `agent_needs_input` to a
+  needs-you state with the question flag. An absent or unrecognized subtype
+  leaves the session's existing attention state unchanged; the mapping remains
+  adapter-owned, outside this file's implementation scope (see Scope above).
+  Every other
   event name is ignored as a no-op: not forwarded, not retained, nothing
   about the dashboard's view changes. Excluded events fail the same three
   questions, not an unstated one:
@@ -151,6 +154,12 @@ R17).
   Scenario: Given a configured hook fires a `PreToolUse` event, when the
   hook helper processes it, then an envelope carrying that tool's name and
   bounded argument preview is forwarded — see R14.
+
+  Scenario: Given a configured hook fires a `Notification` event with
+  `notification_type: permission_prompt`, when the hook helper processes it,
+  then the session is represented as needing the user's attention with the
+  question indicator; an absent or unrecognized subtype leaves its existing
+  attention state unchanged.
 
   Scenario: Given a configured hook fires a `WorktreeCreate` event, when the
   hook helper processes it, then nothing is sent over the socket and the

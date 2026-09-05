@@ -293,28 +293,30 @@ nothing at startup reads or writes Claude configuration; the hooks the
 user adds are the sole switch (R11-R12). The adapter remains an
 experimental capability pending T05's authenticated end-to-end evidence.
 
-The adapter maps exactly the three T01c-observed hook events (`claude.md`
-R13) onto the shared event stream:
+The adapter accepts the fifteen events listed in `claude.md` R13 and maps them
+onto the shared snapshot stream. Event-specific lifecycle and attention
+semantics are defined by `claude.md` R13; bounded content fields and their
+privacy limits are defined by R14-R15. Depending on the event, snapshots may
+carry identity, attention, current action, recent actions, question content,
+tool content, or assistant text; fields not supplied by an event remain absent
+or unchanged rather than being treated as universally empty. This section does
+not duplicate the Claude event matrix.
 
-- `SessionStart` and `StopFailure` each emit one complete
-  `NeedsYou { question: false }` snapshot. `StopFailure` never carries error
-  details, a first `StopFailure` admits the session with its receipt time as
-  `created_at`, and duplicate starts preserve the creation time.
-- `SessionEnd` removes the session and emits a `Gone` tombstone — the same
-  whole-state upsert / tombstone contract R1.4 defines, exactly as the
-  opencode adapter uses it.
+`SessionEnd` removes the session and emits a `Gone` tombstone — the same
+whole-state upsert / tombstone contract R1.4 defines, exactly as the opencode
+adapter uses it.
 
 Snapshots carry identity (`HarnessKind("claude")` + harness-native id, R1.5),
 canonical project identity resolved through the same `ProjectIdentityCache`
 as the opencode adapter (R1.6, including the same documented degraded
 uncanonicalized fallback when a cwd cannot be resolved), and `created_at` /
 `last_updated` / the `NeedsYou` basis from local hook receipt times
-(`claude.md` R14 — the only timestamp that crosses the boundary). Every
-content field T01c does not verify (`parent_id`, `current_action`,
-`wire_title`, prompt/assistant text, `files_touched`, `recent_actions`) is
-`None`/empty. The adapter records receipt timestamps but implements no
-expiry or removal of its own: R3's active/idle window reclassification,
-computed by the core from `last_updated`, is the provisional treatment.
+(`claude.md` R14 — the only timestamp that crosses the boundary). Content and
+activity fields are populated only where an accepted event provides them and
+remain absent or unchanged otherwise. The adapter records receipt timestamps
+but implements no expiry or removal of its own: R3's active/idle window
+reclassification, computed by the core from `last_updated`, is the provisional
+treatment.
 
 [REVIEW: T05 owns the final stale-session policy (the R1.7 threshold and
 its on-screen treatment) and the authenticated lifecycle evidence
