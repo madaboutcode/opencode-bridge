@@ -12,6 +12,12 @@
 //! exactly one complete snapshot for whichever session it targets, or (for
 //! `SubagentStop`/`SessionEnd`) one `Gone` tombstone.
 //!
+//! **`SessionStart` lifecycle.** `ensure_tracked` always runs first, so a
+//! newly observed session is admitted with its initial `Idle` attention. For
+//! an already-tracked session, `Startup`, `Clear`, an absent source, and any
+//! other non-resume source reset attention to `Idle`; `Resume` and `Compact`
+//! preserve the existing attention state byte-for-byte.
+//!
 //! **Subagent modeling.** An event carrying `agent_id` (`ClaudeEvent::
 //! agent_id()`) targets a *subagent* session, not the top-level one: it is
 //! tracked as its own entry in the same session map, keyed
@@ -134,7 +140,7 @@ use crate::snapshot::{AttentionState, ProjectId, SessionId, SessionSnapshot, Tim
 use crate::text::looks_like_question;
 
 use super::action_line;
-use super::hook::{ClaudeEvent, ClaudeIpcEnvelope};
+use super::hook::{ClaudeEvent, ClaudeIpcEnvelope, SessionStartSource};
 use super::KIND;
 
 /// Bound on the recent-actions ring (`claude.md` R14; mirrors the pattern in
@@ -194,12 +200,20 @@ impl<R: DirResolver> ClaudeState<R> {
         let top_id = SessionId::new(KIND, envelope.record.session_id.clone());
 
         match &envelope.record.event {
-            ClaudeEvent::SessionStart { .. } => {
+            ClaudeEvent::SessionStart { source, .. } => {
+                let was_tracked = self.sessions.contains_key(&top_id);
                 self.ensure_tracked(&top_id, cwd, receipt, None);
                 let tracked = self.sessions.get_mut(&top_id).expect("just ensured");
-                tracked.attention = AttentionState::Idle {
-                    last_update: receipt,
-                };
+                if !was_tracked
+                    || !matches!(
+                        source,
+                        Some(SessionStartSource::Resume | SessionStartSource::Compact)
+                    )
+                {
+                    tracked.attention = AttentionState::Idle {
+                        last_update: receipt,
+                    };
+                }
                 snapshot_event(&top_id, tracked, receipt)
             }
             ClaudeEvent::UserPromptSubmit { prompt } => {
